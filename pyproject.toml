@@ -6,7 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
     "websockets>=13",
-    "psycopg[binary]>=3.2",
+    "psycopg[binary,pool]>=3.2",
+    # Painel (wescalp.web): Starlette é só o roteador ASGI, sem ORM nem templates; uvicorn serve.
+    "starlette>=0.40",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -18,3 +21,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["wescalp"]
+
+[tool.setuptools.package-data]
+wescalp = ["static/*"]

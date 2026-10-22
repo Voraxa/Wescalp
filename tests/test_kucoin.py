@@ -1,4 +1,4 @@
-from wescalp.backfill import windows
+from wescalp.backfill import missing_ranges, windows
 from wescalp.collector import Buffer
 from wescalp.db import l1_row
 from wescalp.kucoin import parse_depth, parse_execution, parse_futures_candle, parse_spot_candle
@@ -52,3 +52,12 @@ def test_buffer_throttles_snapshots(monkeypatch):
         buf.add_book(b, ms)
     trades, l1, snaps = buf.take()
     assert len(l1) == 5 and len(snaps) == 2
+
+
+def test_missing_ranges():
+    assert missing_ranges(0, 3000, None, None) == [(0, 3000)]
+    # Já tem de 600 a 1800: falta antes do primeiro e depois do último (que fecha em 2100).
+    assert missing_ranges(0, 3000, 600, 1800) == [(0, 600), (2100, 3000)]
+    # Modo --follow: a janela de 100 semanas andou para depois do primeiro e o último já é o mais recente.
+    assert missing_ranges(900, 2100, 600, 1800) == []
+    assert missing_ranges(900, 2400, 600, 1800) == [(2100, 2400)]

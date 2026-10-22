@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from .kucoin import Book, Candle, Trade
 
@@ -84,3 +85,66 @@ async def insert_book_snapshots(conn: psycopg.AsyncConnection, books: list[Book]
                 for b in books
             ],
         )
+
+
+async def load_candles(conn: psycopg.AsyncConnection, source: str, symbol: str) -> list[Candle]:
+    cur = await conn.execute(
+        "SELECT source, symbol, ts, open, high, low, close, volume, turnover FROM candles"
+        " WHERE source = %s AND symbol = %s ORDER BY ts",
+        (source, symbol),
+    )
+    return [Candle(*row) for row in await cur.fetchall()]
+
+
+async def replace_labels(conn: psycopg.AsyncConnection, config: str, symbol: str, labels: list) -> None:
+    """Troca todos os rótulos de uma configuração de barreiras pelos recém-calculados (wescalp.labels.Label)."""
+    async with conn.transaction():
+        await conn.execute("DELETE FROM labels WHERE config = %s AND symbol = %s", (config, symbol))
+        async with conn.cursor() as cur:
+            async with cur.copy(
+                "COPY labels (config, symbol, ts, side, outcome, bars, entry_px, exit_px, atr, ret_gross, ret_net)"
+                " FROM STDIN"
+            ) as copy:
+                for lb in labels:
+                    await copy.write_row((
+                        config, lb.symbol, lb.ts, lb.side, lb.outcome, lb.bars,
+                        lb.entry_px, lb.exit_px, lb.atr, lb.ret_gross, lb.ret_net,
+                    ))
+
+
+def _time_filter(since: datetime | None, until: datetime | None) -> tuple[str, list]:
+    sql, params = "", []
+    if since:
+        sql, params = sql + " AND ts >= %s", params + [since]
+    if until:
+        sql, params = sql + " AND ts < %s", params + [until]
+    return sql, params
+
+
+async def load_book_l1(
+    conn: psycopg.AsyncConnection, symbol: str, since: datetime | None = None, until: datetime | None = None
+) -> list[tuple]:
+    """Linhas de book_l1 em ordem de (ts, seq), com ts em segundos desde a época (wescalp.flow.Quote)."""
+    where, params = _time_filter(since, until)
+    cur = await conn.execute(
+        "SELECT extract(epoch FROM ts)::float8, bid_px, bid_sz, ask_px, ask_sz, bid_sz5, ask_sz5 FROM book_l1"
+        f" WHERE symbol = %s{where} ORDER BY ts, seq",
+        [symbol, *params],
+    )
+    return await cur.fetchall()
+
+
+async def load_trades(
+    conn: psycopg.AsyncConnection, symbol: str, since: datetime | None = None, until: datetime | None = None
+) -> list[tuple]:
+    """Negócios em ordem de (ts, trade_id), com ts em segundos desde a época (wescalp.flow.Tick)."""
+    where, params = _time_filter(since, until)
+    cur = await conn.execute(
+        f"SELECT extract(epoch FROM ts)::float8, side, size FROM trades WHERE symbol = %s{where} ORDER BY ts, trade_id",
+        [symbol, *params],
+    )
+    return await cur.fetchall()
+
+
+async def save_report(conn: psycopg.AsyncConnection, name: str, body: dict) -> None:
+    await conn.execute("INSERT INTO reports (name, body) VALUES (%s, %s)", (name, Jsonb(body)))
