@@ -15,7 +15,9 @@ Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquis
 | Pesquisa | `python -m wescalp.research` | Mede os 3 setups (rompimento, reversão na VWAP, pullback) contra os rótulos, sem tocar as últimas 16 semanas. |
 | Validação | `python -m wescalp.sweep --jobs 4` | Grade de 288 configurações com walk-forward, Deflated Sharpe e PBO (~35 s). |
 | Fluxo | `python -m wescalp.flow` | OFI, desequilíbrio do livro, microprice e delta contra o retorno futuro do mid. |
-| Vigia | `python -m wescalp.health` | Estado do coletor e do banco; `--watch` avisa por webhook/Telegram. Sobe com o compose. |
+| Candles ao vivo | `python -m wescalp.backfill --follow` | Serviço `candles`: completa as 100 semanas e busca os candles novos a cada minuto. |
+| Painel | `python -m wescalp.web` | Serviço `web` (porta 8090): gráfico, marcas dos setups, fluxo, estado do coletor e relatórios. |
+| Estado | `python -m wescalp.health` | Estado do coletor e do banco no terminal; o painel mostra o mesmo. Alerta desligado por enquanto. |
 
 A KuCoin não entrega histórico do livro de ordens: ele só existe a partir do dia em que o coletor liga.
 Por isso o coletor tem `restart: unless-stopped` e healthcheck.
@@ -69,11 +71,24 @@ A amostra de 21 min de 22/10 só conferiu o pipeline: o decil extremo andou meno
 de 1 tick (~0,01 bps), então o custo é praticamente só taxa, e o perpétuo tem ~0,2 negócio por segundo. A resposta
 (algum decil anda mais que 4 a 8 bps?) precisa de semanas de livro gravado.
 
-## Vigia
+## Painel
 
-O serviço `health` do compose olha o banco a cada minuto: idade do último topo de livro e do último negócio,
+`wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede
+`app_default` do Caddy com o nome `wescalp-web` e não publica porta no host. Mostra:
+
+- gráfico de 5 min do perpétuo com VWAP e bandas, EMA 9/21 e o candle em formação (montado dos negócios);
+- as entradas dos 3 setups, com cor pelo resultado e tracejado até a saída. No período intocado da pesquisa
+  (as últimas 16 semanas) as marcas ficam escondidas até alguém pedir, com aviso;
+- faixas nos minutos sem livro gravado e, embaixo, OFI, delta e desequilíbrio do livro da janela visível;
+- barra de estado do coletor (`ok`, `atrasado`, `parado`), idade do último livro e negócio, banco e disco;
+- aba Pesquisa com o último `research --save` e `sweep --save`.
+
+## Estado do coletor
+
+`wescalp.health` olha o banco: idade do último topo de livro e do último negócio,
 minutos sem livro em 24 h, linhas por hora, tamanho do banco e disco livre. Classifica em `ok`, `atrasado` ou
-`parado`, avisa quando o estado muda e repete a cada 6 h enquanto estiver ruim. O aviso vai para
+`parado`; o painel mostra esse estado. O alerta (`--watch`, que avisa quando o estado muda) está desligado
+por enquanto e não sobe no compose. O aviso vai para
 `WESCALP_ALERT_WEBHOOK` (POST `{"text": ...}`; Slack, ou Discord com `/slack` no fim da URL) e/ou Telegram
 (`WESCALP_TELEGRAM_TOKEN` + `WESCALP_TELEGRAM_CHAT_ID`); sem canal, só no log. `--test-alert` testa o canal e os
 limiares ficam em `WESCALP_HEALTH_*` (padrão: livro parado há mais de 60 s ou negócios há mais de 10 min).
