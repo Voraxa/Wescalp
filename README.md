@@ -45,9 +45,19 @@ docker compose up -d db collector
 docker compose run --rm backfill --weeks 100
 ```
 
+## Pesquisa (Fase 1)
+
+```bash
+.venv/bin/pip install -e '.[dev,research]'
+# exporta os candles do banco para data/candles_futures_5m.parquet, depois:
+.venv/bin/python -m wescalp.research.run
+```
+
+Contrato entre os módulos em `docs/fase1-contrato.md`; resultado em `reports/fase1.md`.
+
 ## Próximas fases
 
-1. **Pesquisa:** rótulos de tripla barreira, setups e confluências, validação walk-forward, Deflated Sharpe/PBO.
+1. **Pesquisa:** feita para setups de candle (sem vantagem); próxima rodada com o livro de ordens.
 2. **Observação:** motor marca entrada e saída no gráfico a cada candle de 5 min, sem dinheiro; Gemini como segunda opinião.
 3. **Livro de lições e rodadas de agentes:** revisão diária e semanal dos trades marcados.
 4. **Painel** em `wescalp.avadata.com.br`, atrás do Caddy da VPS.
