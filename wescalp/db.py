@@ -109,3 +109,37 @@ async def replace_labels(conn: psycopg.AsyncConnection, config: str, symbol: str
                         config, lb.symbol, lb.ts, lb.side, lb.outcome, lb.bars,
                         lb.entry_px, lb.exit_px, lb.atr, lb.ret_gross, lb.ret_net,
                     ))
+
+
+def _time_filter(since: datetime | None, until: datetime | None) -> tuple[str, list]:
+    sql, params = "", []
+    if since:
+        sql, params = sql + " AND ts >= %s", params + [since]
+    if until:
+        sql, params = sql + " AND ts < %s", params + [until]
+    return sql, params
+
+
+async def load_book_l1(
+    conn: psycopg.AsyncConnection, symbol: str, since: datetime | None = None, until: datetime | None = None
+) -> list[tuple]:
+    """Linhas de book_l1 em ordem de (ts, seq), com ts em segundos desde a época (wescalp.flow.Quote)."""
+    where, params = _time_filter(since, until)
+    cur = await conn.execute(
+        "SELECT extract(epoch FROM ts)::float8, bid_px, bid_sz, ask_px, ask_sz, bid_sz5, ask_sz5 FROM book_l1"
+        f" WHERE symbol = %s{where} ORDER BY ts, seq",
+        [symbol, *params],
+    )
+    return await cur.fetchall()
+
+
+async def load_trades(
+    conn: psycopg.AsyncConnection, symbol: str, since: datetime | None = None, until: datetime | None = None
+) -> list[tuple]:
+    """Negócios em ordem de (ts, trade_id), com ts em segundos desde a época (wescalp.flow.Tick)."""
+    where, params = _time_filter(since, until)
+    cur = await conn.execute(
+        f"SELECT extract(epoch FROM ts)::float8, side, size FROM trades WHERE symbol = %s{where} ORDER BY ts, trade_id",
+        [symbol, *params],
+    )
+    return await cur.fetchall()
