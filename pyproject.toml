@@ -14,6 +14,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Pesquisa com modelo (wescalp.ml); roda na máquina de desenvolvimento, não entra na imagem da VPS.
+ml = ["numpy>=1.26", "lightgbm>=4"]
 
 [build-system]
 requires = ["setuptools>=68"]
