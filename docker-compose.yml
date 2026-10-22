@@ -1,5 +1,6 @@
-# Wescalp na VPS: banco + coletor ao vivo. O backfill roda sob demanda:
+# Wescalp na VPS: banco + coletor ao vivo. Backfill e rótulos rodam sob demanda:
 #   docker compose run --rm backfill --weeks 100
+#   docker compose run --rm labels --tp 1.5 --sl 1 --bars 12
 name: wescalp
 
 services:
@@ -44,6 +45,17 @@ services:
       db:
         condition: service_healthy
     mem_limit: 256m
+
+  labels:
+    build: .
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "wescalp.labels"]
+    environment:
+      DATABASE_URL: postgresql://wescalp:${WESCALP_DB_PASSWORD}@db:5432/wescalp
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 512m
 
 volumes:
   db-data:

@@ -15,3 +15,7 @@ BOOK_SNAPSHOT_MS = int(os.environ.get("WESCALP_BOOK_SNAPSHOT_MS", "1000"))
 HEARTBEAT_FILE = os.environ.get("WESCALP_HEARTBEAT_FILE", "/tmp/wescalp-collector.heartbeat")
 
 CANDLE_SECONDS = 300
+
+# Taxas do perpétuo no nível básico da KuCoin (fração do valor negociado, por lado).
+MAKER_FEE = float(os.environ.get("WESCALP_MAKER_FEE", "0.0002"))
+TAKER_FEE = float(os.environ.get("WESCALP_TAKER_FEE", "0.0006"))

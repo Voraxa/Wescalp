@@ -84,3 +84,28 @@ async def insert_book_snapshots(conn: psycopg.AsyncConnection, books: list[Book]
                 for b in books
             ],
         )
+
+
+async def load_candles(conn: psycopg.AsyncConnection, source: str, symbol: str) -> list[Candle]:
+    cur = await conn.execute(
+        "SELECT source, symbol, ts, open, high, low, close, volume, turnover FROM candles"
+        " WHERE source = %s AND symbol = %s ORDER BY ts",
+        (source, symbol),
+    )
+    return [Candle(*row) for row in await cur.fetchall()]
+
+
+async def replace_labels(conn: psycopg.AsyncConnection, config: str, symbol: str, labels: list) -> None:
+    """Troca todos os rótulos de uma configuração de barreiras pelos recém-calculados (wescalp.labels.Label)."""
+    async with conn.transaction():
+        await conn.execute("DELETE FROM labels WHERE config = %s AND symbol = %s", (config, symbol))
+        async with conn.cursor() as cur:
+            async with cur.copy(
+                "COPY labels (config, symbol, ts, side, outcome, bars, entry_px, exit_px, atr, ret_gross, ret_net)"
+                " FROM STDIN"
+            ) as copy:
+                for lb in labels:
+                    await copy.write_row((
+                        config, lb.symbol, lb.ts, lb.side, lb.outcome, lb.bars,
+                        lb.entry_px, lb.exit_px, lb.atr, lb.ret_gross, lb.ret_net,
+                    ))
