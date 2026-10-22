@@ -3,7 +3,7 @@
 Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquisa e arquitetura:
 [Bot de scalping: pesquisa e arquitetura](https://claude.ai/artifact/MDFU7zTSg4VqsySbQJeZD1).
 
-**Estado: Fase 0 (dados) no ar; Fase 1 (pesquisa) começando pela rotulagem.** Nada aqui envia ordem. O código só lê a API pública da KuCoin e grava no banco.
+**Estado: Fase 0 (dados) no ar; Fase 1 (pesquisa) com rotulagem, validação e sinais de fluxo prontos.** Nada aqui envia ordem. O código só lê a API pública da KuCoin e grava no banco.
 
 ## O que já existe
 
@@ -13,6 +13,9 @@ Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquis
 | Coletor ao vivo | `python -m wescalp.collector` | Livro de ordens (50 níveis por lado, ~10 atualizações/s) e cada negócio do perpétuo. Grava o topo do livro a cada atualização e a foto completa a cada 1 s. |
 | Rótulos | `python -m wescalp.labels` | Tripla barreira em cada candle do perpétuo, para compra e venda, com taxas (ver abaixo). |
 | Pesquisa | `python -m wescalp.research` | Mede os 3 setups (rompimento, reversão na VWAP, pullback) contra os rótulos, sem tocar as últimas 16 semanas. |
+| Validação | `python -m wescalp.sweep --jobs 4` | Grade de 288 configurações com walk-forward, Deflated Sharpe e PBO (~35 s). |
+| Fluxo | `python -m wescalp.flow` | OFI, desequilíbrio do livro, microprice e delta contra o retorno futuro do mid. |
+| Vigia | `python -m wescalp.health` | Estado do coletor e do banco; `--watch` avisa por webhook/Telegram. Sobe com o compose. |
 
 A KuCoin não entrega histórico do livro de ordens: ele só existe a partir do dia em que o coletor liga.
 Por isso o coletor tem `restart: unless-stopped` e healthcheck.
@@ -39,6 +42,42 @@ Primeira rodada (22/10, `tp1.5-sl1-t12-atr14`, nov/2024 a jul/2026): nenhum setu
 taxas (bruto entre -2,4 e +0,9 bps; ATR mediano de 13,8 bps) e todos perdem de 5,6 a 8,9 bps por entrada
 depois delas. Bate com a literatura do documento de pesquisa: candle sozinho não basta, a aposta é o fluxo de
 ordens que o coletor está gravando.
+
+## Validação
+
+`python -m wescalp.sweep` testa 36 barreiras (tp ∈ {1; 1,5; 2; 3} ATR, sl ∈ {0,5; 1; 1,5} ATR, tempo ∈ {6; 12; 24}
+candles) × 4 regras (os 3 setups e "todos os candles") × 2 lados = 288 configurações, em retorno semanal, fora das
+últimas 16 semanas. Sobre elas roda walk-forward (treina 60 semanas, testa 4, anda 4), Deflated Sharpe (Bailey e
+López de Prado, 2014) e PBO por CSCV (Bailey, Borwein, López de Prado e Zhu, 2017); as funções ficam em
+`wescalp/validation.py`.
+
+Primeira rodada (22/10): nenhuma configuração fica positiva depois das taxas; a escolhida no walk-forward perdeu
+42 bps por semana fora da amostra (DSR 0). Antes das taxas há um efeito estável de stop curto e alvo largo
+(tp3/sl0.5, 18 de 20 semanas positivas fora da amostra), mas de 0,6 a 0,9 bps por entrada, uma ordem de grandeza
+abaixo da taxa, e supondo stop sem derrapagem. Barreiras e setups só de candle estão esgotados.
+
+## Fluxo de ordens
+
+`python -m wescalp.flow [--since ... --until ...]` lê `book_l1` e `trades` e calcula, em baldes de 1 s e 10 s: OFI de
+Cont, Kukanov e Stoikov entre fotos consecutivas do topo, desequilíbrio dos 5 primeiros níveis, desvio do microprice
+sobre o mid, spread e delta agressor. Para horizontes de 10 a 300 s mostra a correlação com o retorno futuro do mid
+e o retorno médio por decil, ao lado da ida e volta (4, 8 ou 12 bps). O sinal usa só mensagens anteriores ao fim do
+balde; balde que encosta num buraco de mais de 2 s sem livro fica de fora. Carrega tudo em memória (~100 MB por dia
+de livro), então use `--since`/`--until` para períodos longos.
+
+A amostra de 21 min de 22/10 só conferiu o pipeline: o decil extremo andou menos de 0,6 bps em 10 s. O spread é
+de 1 tick (~0,01 bps), então o custo é praticamente só taxa, e o perpétuo tem ~0,2 negócio por segundo. A resposta
+(algum decil anda mais que 4 a 8 bps?) precisa de semanas de livro gravado.
+
+## Vigia
+
+O serviço `health` do compose olha o banco a cada minuto: idade do último topo de livro e do último negócio,
+minutos sem livro em 24 h, linhas por hora, tamanho do banco e disco livre. Classifica em `ok`, `atrasado` ou
+`parado`, avisa quando o estado muda e repete a cada 6 h enquanto estiver ruim. O aviso vai para
+`WESCALP_ALERT_WEBHOOK` (POST `{"text": ...}`; Slack, ou Discord com `/slack` no fim da URL) e/ou Telegram
+(`WESCALP_TELEGRAM_TOKEN` + `WESCALP_TELEGRAM_CHAT_ID`); sem canal, só no log. `--test-alert` testa o canal e os
+limiares ficam em `WESCALP_HEALTH_*` (padrão: livro parado há mais de 60 s ou negócios há mais de 10 min).
+Se a VPS inteira cair, o vigia cai junto; isso pediria um ping externo.
 
 ## Tabelas
 
@@ -75,7 +114,7 @@ docker compose run --rm backfill --weeks 100
 
 ## Próximas fases
 
-1. **Pesquisa:** rótulos de tripla barreira e setups só com candles (feitos, sem vantagem), sinais de fluxo e confluências, validação walk-forward, Deflated Sharpe/PBO.
+1. **Pesquisa:** rótulos, setups só com candles e validação (feitos, sem vantagem); sinais de fluxo (prontos, esperando semanas de livro) e confluências, validação walk-forward, Deflated Sharpe/PBO.
 2. **Observação:** motor marca entrada e saída no gráfico a cada candle de 5 min, sem dinheiro; Gemini como segunda opinião.
 3. **Livro de lições e rodadas de agentes:** revisão diária e semanal dos trades marcados.
 4. **Painel** em `wescalp.avadata.com.br`, atrás do Caddy da VPS.
