@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Roda NA VPS (root). Espera o código já extraído em /opt/wescalp.
-# Sobe banco + coletor e dispara o backfill das 100 semanas em segundo plano.
+# Sobe banco + coletor + vigia e dispara o backfill das 100 semanas em segundo plano.
 set -euo pipefail
 cd /opt/wescalp
 
@@ -11,7 +11,7 @@ if [ ! -f .env ]; then
 fi
 
 docker compose build
-docker compose up -d db collector
+docker compose up -d db collector health
 
 # Backfill idempotente: retoma de onde parou se rodar de novo.
 mkdir -p /var/log

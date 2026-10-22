@@ -35,6 +35,27 @@ services:
       retries: 3
     mem_limit: 256m
 
+  health:
+    # Vigia: avisa (webhook/Telegram) quando o livro ou os negócios param, o banco some ou o disco enche.
+    # Sem depends_on de saúde: se o banco não subir, o vigia precisa estar de pé para avisar.
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "wescalp.health", "--watch"]
+    environment:
+      DATABASE_URL: postgresql://wescalp:${WESCALP_DB_PASSWORD}@db:5432/wescalp
+      # Mesmo volume do banco, só leitura: mede o espaço livre do disco onde o Postgres grava.
+      WESCALP_HEALTH_DISK_PATH: /pgdata
+      WESCALP_ALERT_WEBHOOK: ${WESCALP_ALERT_WEBHOOK:-}
+      WESCALP_TELEGRAM_TOKEN: ${WESCALP_TELEGRAM_TOKEN:-}
+      WESCALP_TELEGRAM_CHAT_ID: ${WESCALP_TELEGRAM_CHAT_ID:-}
+      WESCALP_HEALTH_INTERVAL_S: ${WESCALP_HEALTH_INTERVAL_S:-60}
+      WESCALP_HEALTH_REPEAT_HOURS: ${WESCALP_HEALTH_REPEAT_HOURS:-6}
+    volumes:
+      - db-data:/pgdata:ro
+    depends_on:
+      - db
+    mem_limit: 96m
+
   backfill:
     build: .
     profiles: ["tools"]
