@@ -298,3 +298,275 @@ def _close(i: int, k: int, outcome: str, fills: list[float], px: float, fees_par
     gross = sum(px / e - 1 for e in fills) / 3  # cada parte é 1/3 do capital; parte não usada não rende
     net = gross - fees_parts / 3
     return Result(i, k, outcome, len(fills), net * 1e4, gross * 1e4)
+
+
+# ---------- juiz e walk-forward ----------
+
+CONFIGS = tuple(Cycle(tp, dca, sl) for tp in (0.5, 0.75, 1.0) for dca in (0.5, 1.0) for sl in (2.5, 4.0))
+WEEK, DAY = 7 * 86400, 86400
+FIT_WEEKS = 45  # das 60 de treino: o juiz aprende nas primeiras 45 e o corte sai das 15 seguintes
+MIN_PER_DAY = 2
+FORCE_HOUR = 16  # UTC: daqui em diante, dia com menos de 2 ciclos aceita candidato com nota menor
+CUT_LEVELS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99)
+LGBM_ROUNDS = 300
+LGBM_PARAMS = dict(
+    objective="binary", learning_rate=0.03, num_leaves=15, min_data_in_leaf=100, feature_fraction=0.8,
+    bagging_fraction=0.7, bagging_freq=1, lambda_l2=10.0, seed=0, num_threads=1, verbose=-1,
+)
+JUIZ, FORCADO, TODOS, QUALQUER = "juiz", "juiz + mínimo de 2/dia", "todos os gatilhos", "qualquer candle"
+
+
+def model_matrix(f: Frame) -> tuple[np.ndarray, list[str]]:
+    """Variáveis do candle mais uma coluna 0/1 por gatilho (um candle pode disparar vários)."""
+    flags = np.column_stack([f.candidates[k] for k in f.candidates]).astype(float)
+    return np.hstack([f.x, flags]), f.names + [f"gatilho_{k}" for k in f.candidates]
+
+
+def any_candidate(f: Frame) -> np.ndarray:
+    m = np.zeros(len(f.ts), dtype=bool)
+    for v in f.candidates.values():
+        m |= v
+    return m
+
+
+def label(f: Frame, idx, cy: Cycle, end: int, maker: float, taker: float) -> dict[int, Result]:
+    """Ciclo de cada candidato que termina antes do candle `end` (o primeiro das semanas intocadas)."""
+    out = {}
+    for i in idx:
+        if i + 1 + cy.max_bars < end and (r := simulate_cycle(f, int(i), cy, maker, taker)) is not None:
+            out[int(i)] = r
+    return out
+
+
+def sequence(idx, result, take, day_of, hour_of=None, force=None) -> list[Result]:
+    """Um ciclo por vez, em ordem de tempo: candidato com o ciclo anterior ainda aberto é ignorado.
+
+    `take(i)` é a regra normal. `force(i)` só vale depois de FORCE_HOUR, em dia com menos de MIN_PER_DAY ciclos.
+    O sinal no fechamento do candle em que o ciclo anterior saiu já pode entrar (a entrada é no candle seguinte).
+    """
+    out, busy, opened = [], -1, {}
+    for i in idx:
+        if i < busy:
+            continue
+        ok = take(i)
+        if not ok and force is not None:
+            ok = opened.get(day_of[i], 0) < MIN_PER_DAY and hour_of[i] >= FORCE_HOUR and force(i)
+        if not ok or (r := result(i)) is None:
+            continue
+        out.append(r)
+        busy = r.exit_i
+        opened[day_of[i]] = opened.get(day_of[i], 0) + 1
+    return out
+
+
+def choose_cut(p: dict[int, float], idx: list[int], result, day_of, n_days: int) -> tuple[float, bool]:
+    """Corte de nota para o trecho de calibração: o de maior lucro com acerto ≥ 80% + folga e ≥ 2 ciclos/dia.
+
+    Sem corte que cumpra os dois, fica o de maior acerto entre os que dão ≥ 2 ciclos/dia, e a rodada é marcada
+    como fora da meta (False).
+    """
+    tried = []
+    for t in sorted(set(np.quantile([p[i] for i in idx], CUT_LEVELS))):
+        rs = sequence(idx, result, lambda i: p[i] >= t, day_of)
+        if rs:
+            r = np.array([x.ret_bps for x in rs])
+            tried.append((t, float((r > 0).mean()), len(rs) / n_days, float(r.sum())))
+    ok = [x for x in tried if x[1] >= MIN_WIN_RATE + CUT_MARGIN and x[2] >= MIN_PER_DAY]
+    if ok:
+        return max(ok, key=lambda x: x[3])[0], True
+    enough = [x for x in tried if x[2] >= MIN_PER_DAY] or tried
+    if not enough:
+        return math.inf, False
+    return max(enough, key=lambda x: (x[1], x[3]))[0], False
+
+
+def fit_lgbm(x: np.ndarray, y: np.ndarray):
+    import lightgbm
+
+    return lightgbm.train(LGBM_PARAMS, lightgbm.Dataset(x, y.astype(float)), num_boost_round=LGBM_ROUNDS)
+
+
+@dataclass
+class ConfigRun:
+    cycle: Cycle
+    rows: dict[str, list[Result]]  # regra → ciclos nas semanas de teste, todas as rodadas
+    test_weeks: list[int]
+    test_days: int
+    folds_met: int
+    folds: int
+    importance: list[tuple[str, float]]
+
+
+def walk_forward(f: Frame, x: np.ndarray, names: list[str], cy: Cycle, maker: float, taker: float,
+                 holdout_weeks: int = HOLDOUT_WEEKS) -> ConfigRun:
+    week = (f.ts - f.ts[0]) // WEEK
+    dev_weeks = int(week[-1]) + 1 - holdout_weeks
+    end = int(np.searchsorted(week, dev_weeks))
+    labels = label(f, np.flatnonzero(any_candidate(f)[:end]), cy, end, maker, taker)
+    day_of, hour_of = f.ts // DAY, (f.ts % DAY) // 3600
+    cache: dict[int, Result | None] = {}
+
+    def any_bar(i: int) -> Result | None:  # "qualquer candle": simula sob demanda
+        if i not in cache:
+            cache[i] = simulate_cycle(f, i, cy, maker, taker) if i + 1 + cy.max_bars < end else None
+        return cache[i]
+
+    rows: dict[str, list[Result]] = {}
+    test_weeks, test_days, met, n_folds, importance = [], 0, 0, 0, []
+    for s in range(0, dev_weeks - TRAIN_WEEKS - TEST_WEEKS + 1, TEST_WEEKS):
+        cal_lo, te_lo, te_hi = s + FIT_WEEKS, s + TRAIN_WEEKS, s + TRAIN_WEEKS + TEST_WEEKS
+        fit = [i for i, r in labels.items() if s <= week[i] < cal_lo and week[r.exit_i] < cal_lo]
+        cal = [i for i, r in labels.items() if cal_lo <= week[i] < te_lo and week[r.exit_i] < te_lo]
+        test = [i for i in labels if te_lo <= week[i] < te_hi]
+        if len(fit) < 500 or not cal:
+            continue
+        booster = fit_lgbm(x[fit], np.array([labels[i].ret_bps > 0 for i in fit]))
+        p_cal = dict(zip(cal, booster.predict(x[cal])))
+        cal_days = len(np.unique(day_of[(week >= cal_lo) & (week < te_lo)]))
+        cut, ok = choose_cut(p_cal, cal, labels.get, day_of, cal_days)
+        low = float(np.median(list(p_cal.values())))
+        p = dict(zip(test, booster.predict(x[test]))) if test else {}
+
+        add = lambda name, rs: rows.setdefault(name, []).extend(rs)  # noqa: E731
+        add(JUIZ, sequence(test, labels.get, lambda i: p[i] >= cut, day_of))
+        add(FORCADO, sequence(test, labels.get, lambda i: p[i] >= cut, day_of, hour_of, lambda i: p[i] >= low))
+        add(TODOS, sequence(test, labels.get, lambda i: True, day_of))
+        for k, m in f.candidates.items():
+            add(k, sequence([i for i in test if m[i]], labels.get, lambda i: True, day_of))
+        lo, hi = int(np.searchsorted(week, te_lo)), int(np.searchsorted(week, te_hi))
+        add(QUALQUER, sequence(range(lo, hi), any_bar, lambda i: True, day_of))
+
+        test_weeks += list(range(te_lo, te_hi))
+        test_days += len(np.unique(day_of[lo:hi]))
+        met += ok
+        n_folds += 1
+        gain = booster.feature_importance("gain")
+        importance = sorted(zip(names, gain / gain.sum()), key=lambda r: -r[1])
+    return ConfigRun(cy, rows, test_weeks, test_days, met, n_folds, importance)
+
+
+def stats(rs: list[Result], f: Frame, test_weeks: list[int], test_days: int) -> dict:
+    r = np.array([x.ret_bps for x in rs])
+    n = len(r)
+    if not n:
+        return {"n": 0}
+    cum = np.concatenate([[0.0], np.cumsum(r)])
+    week = (f.ts - f.ts[0]) // WEEK
+    by_week = {w: 0.0 for w in test_weeks}
+    by_day: dict[int, int] = {}
+    for x in rs:
+        by_week[int(week[x.i])] = by_week.get(int(week[x.i]), 0.0) + x.ret_bps
+        d = int(f.ts[x.i] // DAY)
+        by_day[d] = by_day.get(d, 0) + 1
+    wins, losses = r[r > 0], r[r <= 0]
+    return {
+        "n": n, "per_day": n / test_days, "days2": sum(v >= MIN_PER_DAY for v in by_day.values()) / test_days,
+        "win": len(wins) / n, "avg_win": wins.mean() if len(wins) else 0.0,
+        "avg_loss": losses.mean() if len(losses) else 0.0, "mean": r.mean(), "total": r.sum(),
+        "worst": r.min(), "dd": float((np.maximum.accumulate(cum) - cum).max()),
+        "stops": sum(x.outcome == "sl" for x in rs) / n,
+        "weeks_pos": sum(v > 0 for v in by_week.values()), "weekly": [by_week[w] for w in test_weeks],
+    }
+
+
+def format_config(run: ConfigRun, f: Frame) -> str:
+    head = (f"{'regra':<24}{'ciclos':>7}{'/dia':>6}{'dias≥2':>8}{'acerto':>8}{'ganho':>8}{'perda':>8}"
+            f"{'líq/ciclo':>10}{'total':>9}{'pior':>8}{'queda':>8}{'stops':>7}{'sem+':>7}")
+    lines = [f"\n{run.cycle.name}: {run.folds} rodadas, juiz dentro da meta na calibração em {run.folds_met}",
+             head]
+    order = [JUIZ, FORCADO, TODOS, *f.candidates, QUALQUER]
+    for name in order:
+        s = stats(run.rows.get(name, []), f, run.test_weeks, run.test_days)
+        if not s["n"]:
+            lines.append(f"{name:<24}{0:>7}")
+            continue
+        lines.append(
+            f"{name:<24}{s['n']:>7}{s['per_day']:>6.1f}{s['days2']:>8.0%}{s['win']:>8.1%}{s['avg_win']:>8.1f}"
+            f"{s['avg_loss']:>8.1f}{s['mean']:>10.2f}{s['total']:>9.0f}{s['worst']:>8.0f}{s['dd']:>8.0f}"
+            f"{s['stops']:>7.1%}{s['weeks_pos']:>4}/{len(run.test_weeks)}"
+        )
+    return "\n".join(lines)
+
+
+_F: Frame | None = None
+_X: np.ndarray | None = None
+_NAMES: list[str] = []
+_FEES: tuple[float, float] = (MAKER_FEE, TAKER_FEE)
+_HOLDOUT = HOLDOUT_WEEKS
+
+
+def _init(f: Frame, x: np.ndarray, names: list[str], fees: tuple[float, float], holdout: int) -> None:
+    global _F, _X, _NAMES, _FEES, _HOLDOUT
+    _F, _X, _NAMES, _FEES, _HOLDOUT = f, x, names, fees, holdout
+
+
+def _work(cy: Cycle) -> ConfigRun:
+    return walk_forward(_F, _X, _NAMES, cy, *_FEES, _HOLDOUT)
+
+
+def run(args) -> None:
+    from concurrent.futures import ProcessPoolExecutor
+
+    from .validation import deflated_sharpe, sharpe
+
+    candles = load_candles(candle_path(data_dir=args.data))
+    if not candles:
+        raise SystemExit("sem candles; rode antes: python -m wescalp.brain fetch")
+    f = build(candles)
+    x, names = model_matrix(f)
+    week = (f.ts - f.ts[0]) // WEEK
+    dev_end = int(np.searchsorted(week, int(week[-1]) + 1 - args.holdout))
+    fmt = lambda t: datetime.fromtimestamp(int(t), timezone.utc).strftime("%Y-%m-%d")  # noqa: E731
+    print(f"{FUTURES_SYMBOL} 5 min: {len(candles)} candles de {fmt(f.ts[0])} a {fmt(f.ts[-1])};"
+          f" intocadas as últimas {args.holdout} semanas (desde {fmt(f.ts[dev_end])})")
+    print(f"taxas: maker {args.maker:.2%}, taker {args.taker:.2%}; ATR de 1 h mediano"
+          f" {np.nanmedian(f.atr_h1[:dev_end] / f.close[:dev_end] * 1e4):.0f} bps")
+    print("gatilhos no período de pesquisa: " + ", ".join(
+        f"{k} {int(m[:dev_end].sum())}" for k, m in f.candidates.items()))
+    print("ganho/perda/líq/total/pior/queda em bps do capital do ciclo (as 3 partes); queda = maior queda do"
+          " acumulado; sem+ = semanas de teste no positivo; acerto = ciclos com líquido > 0")
+    print(f"gerado em {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC", flush=True)
+
+    with ProcessPoolExecutor(args.jobs, initializer=_init,
+                             initargs=(f, x, names, (args.maker, args.taker), args.holdout)) as pool:
+        runs = list(pool.map(_work, CONFIGS))
+    for r in runs:
+        print(format_config(r, f), flush=True)
+
+    weekly = {r.cycle.name: stats(r.rows.get(JUIZ, []), f, r.test_weeks, r.test_days) for r in runs}
+    trials = [sharpe(s["weekly"]) for s in weekly.values() if s["n"]]
+    best = max((r for r in runs if weekly[r.cycle.name]["n"]), key=lambda r: weekly[r.cycle.name]["total"],
+               default=None)
+    if best is not None:
+        s = weekly[best.cycle.name]
+        print(f"\nmelhor juiz por total: {best.cycle.name}, acerto {s['win']:.1%}, {s['per_day']:.1f} ciclos/dia,"
+              f" total {s['total']:.0f} bps, Sharpe semanal {sharpe(s['weekly']):.2f},"
+              f" DSR entre {len(trials)} configurações {deflated_sharpe(s['weekly'], trials):.3f}")
+        print("importância no último juiz dessa configuração: "
+              + ", ".join(f"{n} {g:.0%}" for n, g in best.importance[:8]))
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--data", type=Path, default=CANDLE_DIR, help="pasta dos candles")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    fe = sub.add_parser("fetch", help="baixa ou completa os candles de 5 min do perpétuo")
+    fe.add_argument("--weeks", type=int, default=WEEKS)
+    r = sub.add_parser("run", help="walk-forward do juiz e relatório")
+    r.add_argument("--maker", type=float, default=MAKER_FEE, help="taxa maker (fração)")
+    r.add_argument("--taker", type=float, default=TAKER_FEE, help="taxa taker (fração)")
+    r.add_argument("--holdout", type=int, default=HOLDOUT_WEEKS, help="últimas semanas intocadas")
+    r.add_argument("--jobs", type=int, default=4, help="configurações em paralelo")
+    args = p.parse_args()
+    if args.cmd == "fetch":
+        cs = asyncio.run(fetch(FUTURES_SYMBOL, args.weeks, candle_path(data_dir=args.data)))
+        gaps = sum(1 for a, b in zip(cs, cs[1:]) if (b.ts - a.ts) != timedelta(seconds=BAR))
+        log.info("%d candles de %s a %s, %d buracos", len(cs), cs[0].ts, cs[-1].ts, gaps)
+    else:
+        run(args)
+
+
+if __name__ == "__main__":
+    main()
