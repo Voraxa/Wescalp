@@ -12,6 +12,7 @@ Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquis
 | Histórico | `python -m wescalp.backfill --weeks 100` | Candles de 5 min do spot `BTC-USDT` e do perpétuo `XBTUSDTM`, 100 semanas de cada (~201 mil candles por fonte, ~10 min). Retoma de onde parou. |
 | Coletor ao vivo | `python -m wescalp.collector` | Livro de ordens (50 níveis por lado, ~10 atualizações/s) e cada negócio do perpétuo. Grava o topo do livro a cada atualização e a foto completa a cada 1 s. |
 | Rótulos | `python -m wescalp.labels` | Tripla barreira em cada candle do perpétuo, para compra e venda, com taxas (ver abaixo). |
+| Pesquisa | `python -m wescalp.research` | Mede os 3 setups (rompimento, reversão na VWAP, pullback) contra os rótulos, sem tocar as últimas 16 semanas. |
 
 A KuCoin não entrega histórico do livro de ordens: ele só existe a partir do dia em que o coletor liga.
 Por isso o coletor tem `restart: unless-stopped` e healthcheck.
@@ -28,6 +29,16 @@ substitui a anterior de mesmo nome; `--dry-run` só mostra o resumo.
 
 Rotular todo candle, sem filtro, é a linha de base: o retorno bruto médio fica perto de zero e o líquido perde
 as taxas. Um setup só interessa se, nos candles que ele escolhe, o líquido ficar positivo fora da amostra.
+
+`python -m wescalp.research` aplica os setups de `wescalp/setups.py` (só com candles: VWAP do dia, EMA 9/21,
+máxima e mínima do dia anterior, volume relativo) e mostra, por setup e lado, entradas, taxa de acerto, retorno
+bruto e líquido em bps, intervalo de 90% e em quantas janelas de 4 semanas ficou positivo. As últimas
+`--holdout` semanas (padrão 16) ficam de fora até a regra estar congelada.
+
+Primeira rodada (22/10, `tp1.5-sl1-t12-atr14`, nov/2024 a jul/2026): nenhum setup tem vantagem nem antes das
+taxas (bruto entre -2,4 e +0,9 bps; ATR mediano de 13,8 bps) e todos perdem de 5,6 a 8,9 bps por entrada
+depois delas. Bate com a literatura do documento de pesquisa: candle sozinho não basta, a aposta é o fluxo de
+ordens que o coletor está gravando.
 
 ## Tabelas
 
@@ -64,7 +75,7 @@ docker compose run --rm backfill --weeks 100
 
 ## Próximas fases
 
-1. **Pesquisa:** rótulos de tripla barreira (feito), sinais de fluxo e técnicos, setups e confluências, validação walk-forward, Deflated Sharpe/PBO.
+1. **Pesquisa:** rótulos de tripla barreira e setups só com candles (feitos, sem vantagem), sinais de fluxo e confluências, validação walk-forward, Deflated Sharpe/PBO.
 2. **Observação:** motor marca entrada e saída no gráfico a cada candle de 5 min, sem dinheiro; Gemini como segunda opinião.
 3. **Livro de lições e rodadas de agentes:** revisão diária e semanal dos trades marcados.
 4. **Painel** em `wescalp.avadata.com.br`, atrás do Caddy da VPS.
