@@ -47,6 +47,30 @@ services:
         condition: service_healthy
     mem_limit: 256m
 
+  web:
+    # Painel (wescalp.web): gráfico, marcas, fluxo e estado do coletor. Só lê o banco.
+    # Sem porta no host: o Caddy da VPS (app-caddy-1, rede app_default) faz reverse_proxy wescalp-web:8090,
+    # com basic_auth lá.
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "wescalp.web"]
+    environment:
+      DATABASE_URL: postgresql://wescalp:${WESCALP_DB_PASSWORD}@db:5432/wescalp
+      WESCALP_WEB_PORT: "8090"
+      # Mesmo volume do banco, só leitura: mede o espaço livre do disco onde o Postgres grava.
+      WESCALP_HEALTH_DISK_PATH: /pgdata
+    volumes:
+      - db-data:/pgdata:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      default:
+      caddy:
+        aliases: [wescalp-web]
+    # Pico medido: ~57 MB em uso normal e ~130 MB com 6 h de livro no /api/flow (216 mil linhas; um por vez).
+    mem_limit: 320m
+
   backfill:
     build: .
     profiles: ["tools"]
@@ -71,3 +95,10 @@ services:
 
 volumes:
   db-data:
+
+networks:
+  # Rede do Caddy compartilhado da VPS (compose do Livegenda). Só o web entra nela.
+  # Fora da VPS, sem essa rede, crie uma vazia antes: docker network create app_default
+  caddy:
+    external: true
+    name: app_default

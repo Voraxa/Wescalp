@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="robots" content="noindex">
+<title>Wescalp</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="status">
+  <div class="status-row">
+    <span class="brand">Wescalp</span>
+    <button class="pill" id="st-state" aria-expanded="false" title="Detalhes do coletor">
+      <i></i><b>…</b>
+    </button>
+    <span class="kv"><small>livro</small><b id="st-book">—</b></span>
+    <span class="kv"><small>negócio</small><b id="st-trade">—</b></span>
+    <span class="kv"><small>sem livro 24 h</small><b id="st-gap">—</b></span>
+    <span class="kv"><small>banco</small><b id="st-db">—</b></span>
+    <span class="kv"><small>disco livre</small><b id="st-disk">—</b></span>
+  </div>
+  <div class="status-details" id="st-details" hidden></div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="chart" aria-selected="true">Gráfico</button>
+  <button role="tab" data-tab="research" aria-selected="false">Pesquisa</button>
+</nav>
+
+<main>
+  <section id="tab-chart">
+    <div class="toolbar">
+      <label class="chip"><input type="checkbox" data-show="vwap" checked><span class="sw sw-vwap"></span>VWAP</label>
+      <label class="chip"><input type="checkbox" data-show="bands" checked><span class="sw sw-band"></span>Bandas</label>
+      <label class="chip"><input type="checkbox" data-show="ema9" checked><span class="sw sw-ema9"></span>EMA 9</label>
+      <label class="chip"><input type="checkbox" data-show="ema21" checked><span class="sw sw-ema21"></span>EMA 21</label>
+      <label class="chip"><input type="checkbox" data-show="marks" checked><span class="sw sw-mark"></span>Marcas</label>
+      <label class="chip"><input type="checkbox" data-show="flow" checked><span class="sw sw-flow"></span>Fluxo</label>
+      <details class="opts">
+        <summary>Barreiras</summary>
+        <div class="opts-box">
+          <label>alvo <input id="b-tp" type="number" step="0.5" min="0.5" max="10" value="1.5"> ATR</label>
+          <label>stop <input id="b-sl" type="number" step="0.5" min="0.5" max="10" value="1"> ATR</label>
+          <label>tempo <input id="b-bars" type="number" step="1" min="1" max="96" value="12"> candles</label>
+          <label class="check"><input id="b-holdout" type="checkbox"> marcas no período intocado</label>
+          <button id="b-apply" type="button">Aplicar</button>
+        </div>
+      </details>
+      <button class="now" id="go-now" type="button" title="Voltar para o último candle">Agora ›</button>
+    </div>
+    <div class="notice" id="notice" hidden></div>
+    <div class="chart-wrap">
+      <div id="chart"></div>
+      <div class="legend" id="legend"></div>
+      <div class="loading" id="loading" hidden>carregando…</div>
+    </div>
+    <div class="flow-wrap" id="flow-wrap">
+      <div class="flow-head">
+        <span class="flow-title">Fluxo do livro</span>
+        <span class="flow-info" id="flow-info"></span>
+      </div>
+      <canvas id="flow"></canvas>
+    </div>
+    <p class="foot" id="foot">
+      Perpétuo XBTUSDTM, candles de 5 min, horário do aparelho. VWAP reinicia às 00:00 UTC.
+      Setas: entrada no fechamento do candle (cima = compra, baixo = venda); cor = resultado
+      (<span class="c-tp">alvo</span>, <span class="c-sl">stop</span>, <span class="c-time">tempo</span>);
+      tracejado até a saída. Faixa vermelha: minutos sem livro gravado. Fundo azulado: período intocado da pesquisa.
+    </p>
+  </section>
+
+  <section id="tab-research" hidden>
+    <div class="research-head">
+      <h2>Pesquisa</h2>
+      <button id="reports-reload" type="button">Atualizar</button>
+    </div>
+    <div id="reports"><p class="muted">carregando…</p></div>
+  </section>
+</main>
+</body>
+</html>

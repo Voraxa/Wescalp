@@ -165,6 +165,16 @@ def last_hour(per_minute: dict[int, int], now_min: int) -> int:
     return sum(n for m, n in per_minute.items() if now_min - 60 <= m < now_min)
 
 
+def coverage_start(per_minute: dict[int, int], before_window: bool, any_book: bool, window_start: int) -> int | None:
+    """Primeiro minuto em que a falta de livro conta como buraco: o início da janela, ou o primeiro livro
+    gravado se o coletor ligou depois dele. None se nunca houve livro."""
+    if before_window or (any_book and not per_minute):
+        return window_start
+    if per_minute:
+        return max(min(per_minute), window_start)
+    return None
+
+
 def worst(states) -> str:
     return max(states, key=RANK.__getitem__, default=OK)
 
@@ -192,12 +202,7 @@ def evaluate(m: Metrics, lim: Limits, symbol: str = FUTURES_SYMBOL) -> Report:
 
     # Buracos: só conta a partir do primeiro livro gravado, se o coletor ligou há menos de 24 h.
     window_start = now_min - WINDOW_MIN
-    if m.book_before_window or (m.last_book is not None and not m.book_per_minute):
-        cover = window_start
-    elif m.book_per_minute:
-        cover = max(min(m.book_per_minute), window_start)
-    else:
-        cover = None
+    cover = coverage_start(m.book_per_minute, m.book_before_window, m.last_book is not None, window_start)
     runs = gap_runs(m.book_per_minute, cover, now_min) if cover is not None else []
     missing = sum(n for _, n in runs)
     if missing > lim.gap_minutes:
