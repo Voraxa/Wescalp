@@ -122,6 +122,22 @@ positiva em nenhuma geometria. Acerto de 80% sai da geometria, não do juiz: ent
 0,04 entre 12). O juiz decora o treino (AUC 0,93) e quase não separa ciclos fora dele (AUC 0,43 a 0,65); sem taxa,
 continua negativo (-1 a -3 bps por ciclo).
 
+## Entrada no spot com alvo fixo e DCA por sinal
+
+`python -m wescalp.spot fetch` copia 100 semanas de candles de 5 min do BTC-USDT e `python -m wescalp.spot run`
+testa o pedido de 23/10: só compra no spot, o juiz escolhe a entrada, o DCA (até 2 aportes de 1/3) só compra com
+um novo sinal e o preço pelo menos um alvo abaixo da última compra, venda no alvo fixo sobre o preço médio (2%,
+3% ou 5%), stop definido na entrada a 3 alvos abaixo dela, 30 dias no máximo, taxa de 0,1% por lado. O juiz aprende
+a "boa entrada" (subir o alvo antes de cair o alvo) com contexto de 15 min, 1 h, 4 h e 1 dia. Mesmo walk-forward;
+o teste é uma simulação contínua das 24 semanas.
+
+Primeira rodada (23/10, teste de 15/01 a 02/07/2026, BTC -35,7%): nenhum alvo dá lucro e nenhum chega a 80% de
+ciclos no lucro. O melhor é o alvo de 2% com juiz: 32 ciclos (0,19 por dia), 78% de acerto, -2,7% no período
+contra -21,5% dos gatilhos sem juiz, -31,7% do DCA cego e -35,7% de segurar o BTC; queda máxima de 18%. O juiz
+ganhou porque ficou fora do mercado metade do tempo (as variáveis do diário dominam a importância), não por
+escolher entradas melhores: as entradas dele subiram o alvo antes de cair em 34% das vezes, contra 42% ao acaso.
+Com 32 ciclos e um só regime (queda), a amostra é pequena demais para concluir (DSR 0,21 entre 3 alvos).
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede

@@ -65,28 +65,28 @@ def save_candles(path: Path, candles: list[Candle]) -> None:
     tmp.rename(path)
 
 
-def load_candles(path: Path, symbol: str = FUTURES_SYMBOL) -> list[Candle]:
+def load_candles(path: Path, symbol: str = FUTURES_SYMBOL, source: str = "futures") -> list[Candle]:
     if not path.exists():
         return []
     with gzip.open(path, "rt", newline="") as f:
         return [
-            Candle("futures", symbol, datetime.fromtimestamp(int(t), timezone.utc), *map(float, rest))
+            Candle(source, symbol, datetime.fromtimestamp(int(t), timezone.utc), *map(float, rest))
             for t, *rest in csv.reader(f)
         ]
 
 
-async def fetch(symbol: str, weeks: int, path: Path) -> list[Candle]:
-    """Completa o arquivo até o último candle fechado; retoma de onde parou."""
-    have = {c.ts: c for c in load_candles(path, symbol)}
+async def fetch(symbol: str, weeks: int, path: Path, source: str = "futures") -> list[Candle]:
+    """Completa o arquivo até o último candle fechado; retoma de onde parou. `source`: futures ou spot."""
+    have = {c.ts: c for c in load_candles(path, symbol, source)}
     end = int(time.time()) // BAR * BAR
     start = end - weeks * 7 * 86400
     if have:
         start = max(start, int(max(have).timestamp()) + BAR)
     rest = KucoinRest()
     try:
-        step = 200 * BAR
+        get, step = (rest.spot_candles, 1500 * BAR) if source == "spot" else (rest.futures_candles, 200 * BAR)
         for a in range(start, end, step):
-            for c in await rest.futures_candles(symbol, a, min(a + step, end)):
+            for c in await get(symbol, a, min(a + step, end)):
                 have[c.ts] = c
     finally:
         await rest.aclose()
@@ -179,7 +179,8 @@ def higher(ts: np.ndarray, o, h, l, c, v, minutes: int) -> dict[str, np.ndarray]
     return {k: np.where(found, a[idx], np.nan) for k, a in vals.items()}
 
 
-def build(candles: list[Candle]) -> Frame:
+def build(candles: list[Candle], contexts: tuple[int, ...] = (15, 60, 240)) -> Frame:
+    """Variáveis e gatilhos de cada candle. `contexts`: tempos maiores em minutos (60 e 240 são obrigatórios)."""
     ts = np.array([int(c.ts.timestamp()) for c in candles], dtype=np.int64)
     o, h, l, c, v = (np.array([getattr(x, f) for x in candles]) for f in ("open", "high", "low", "close", "volume"))
     f5 = candle_features(candles)
@@ -208,7 +209,7 @@ def build(candles: list[Candle]) -> Frame:
         "body": (c - o) / rng, "lower_wick": (np.minimum(o, c) - l) / rng, "upper_wick": (h - np.maximum(o, c)) / rng,
         "hour": (ts % 86400) // 3600, "weekday": ((ts // 86400) + 3) % 7,  # 0 = segunda
     }
-    ctx = {m: higher(ts, o, h, l, c, v, m) for m in (15, 60, 240)}
+    ctx = {m: higher(ts, o, h, l, c, v, m) for m in contexts}
     for m, vals in ctx.items():
         for k, a in vals.items():
             if k != "atr":
