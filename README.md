@@ -104,6 +104,24 @@ previsão do fluxo satura em 1 a 2 bps. O LightGBM foi pior que as regras simple
 hora (o tamanho do movimento), não a direção. Fluxo de ordens para entrar na direção, com taxa de varejo, está
 descartado nesta escala de tempo.
 
+## Cérebro de compra com DCA
+
+`python -m wescalp.brain fetch` copia as 100 semanas de candles de 5 min para `data/candles/` (a mesma API do
+backfill; a pesquisa com modelo roda fora da VPS) e `python -m wescalp.brain run` testa o ciclo só de compra:
+sete gatilhos gráficos (pullback na tendência de 1 h, banda inferior da VWAP, RSI sobrevendido, Bollinger
+inferior, recuperação da mínima de ontem, rompimento da máxima de ontem, rejeição com tendência de 4 h), um juiz
+LightGBM que dá a probabilidade de o ciclo fechar no lucro, entrada a mercado, duas ordens de DCA a 1 e 2 passos
+de ATR de 1 h, alvo sobre o preço médio, um stop para a posição inteira e 12 h no máximo. Walk-forward de 60
+semanas (o juiz aprende em 45, o corte sai das 15 seguintes, mirando acerto ≥ 85% e ≥ 2 ciclos/dia), testa 4,
+anda 4; 12 geometrias de alvo/DCA/stop; últimas 16 semanas intocadas.
+
+Primeira rodada (22/10, 24 semanas de teste de 17/01 a 04/07/2026, em que o BTC caiu 34%): nenhuma regra fica
+positiva em nenhuma geometria. Acerto de 80% sai da geometria, não do juiz: entrar em qualquer candle com alvo de
+0,5 ATR e stop de 4 ATR já acerta 86,9%, e o juiz nessa geometria acerta 88,5% e perde 6,6 bps por ciclo
+(-36% do capital em 24 semanas). O melhor juiz (tp1-dca0.5-sl4) perdeu 2,2 bps por ciclo com 76% de acerto (DSR
+0,04 entre 12). O juiz decora o treino (AUC 0,93) e quase não separa ciclos fora dele (AUC 0,43 a 0,65); sem taxa,
+continua negativo (-1 a -3 bps por ciclo).
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede
