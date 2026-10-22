@@ -51,3 +51,28 @@ CREATE TABLE IF NOT EXISTS book_snapshots (
     ask_sz    double precision[] NOT NULL,
     PRIMARY KEY (symbol, ts, seq)
 );
+
+-- Rótulos de tripla barreira (wescalp.labels): o que teria acontecido com uma compra e uma venda no fechamento
+-- de cada candle de 5 min do perpétuo. config descreve as barreiras, ex.: tp1.5-sl1-t12-atr14.
+CREATE TABLE IF NOT EXISTS labels (
+    config     text             NOT NULL,
+    symbol     text             NOT NULL,
+    ts         timestamptz      NOT NULL,  -- abertura do candle em cujo fechamento a entrada acontece
+    side       text             NOT NULL,  -- long | short
+    outcome    text             NOT NULL,  -- tp | sl | time
+    bars       smallint         NOT NULL,  -- candles até a saída
+    entry_px   double precision NOT NULL,
+    exit_px    double precision NOT NULL,
+    atr        double precision NOT NULL,
+    ret_gross  double precision NOT NULL,  -- fração do preço de entrada, antes das taxas
+    ret_net    double precision NOT NULL,  -- depois das taxas maker/taker
+    PRIMARY KEY (config, symbol, side, ts)
+);
+
+-- Resultados dos relatórios de pesquisa (wescalp.research e wescalp.sweep com --save), para o painel.
+CREATE TABLE IF NOT EXISTS reports (
+    name        text        NOT NULL,  -- research | sweep
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    body        jsonb       NOT NULL,
+    PRIMARY KEY (name, created_at)
+);
