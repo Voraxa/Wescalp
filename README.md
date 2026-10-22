@@ -37,10 +37,12 @@ export DATABASE_URL=postgresql://usuario@localhost:5432/wescalp
 .venv/bin/python -m wescalp.collector
 ```
 
-Na VPS (Docker):
+Na VPS: `deploy/ssm-deploy.sh` empacota o commit atual e instala em `/opt/wescalp` via AWS SSM
+(precisa de `AWS_EC2_ACCESS_KEY_ID`/`AWS_EC2_SECRET_ACCESS_KEY` e do AWS CLI). Na primeira vez cria o `.env`
+com senha aleatória, sobe `db` + `collector` e dispara o backfill (log em `/var/log/wescalp-backfill.log`).
+Na mão, dentro de `/opt/wescalp`:
 
 ```bash
-cp .env.example .env   # e troque a senha
 docker compose up -d db collector
 docker compose run --rm backfill --weeks 100
 ```
