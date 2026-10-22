@@ -46,9 +46,10 @@ COSTS = (4.0, 8.0)
 TRAIN_DAYS, TEST_DAYS = 10, 3
 TRAIN_STRIDE = 5  # usa 1 segundo a cada 5 no treino: alvos vizinhos são quase o mesmo número
 CLIP_BPS = 50.0  # corta o alvo do treino para um pico não dominar o ajuste
+LGBM_ROUNDS = 300
 LGBM_PARAMS = dict(
-    n_estimators=300, learning_rate=0.03, num_leaves=31, min_child_samples=2000,
-    subsample=0.5, subsample_freq=1, colsample_bytree=0.8, reg_lambda=10.0, verbose=-1,
+    objective="regression", learning_rate=0.03, num_leaves=31, min_data_in_leaf=2000,
+    bagging_fraction=0.5, bagging_freq=1, feature_fraction=0.8, lambda_l2=10.0, seed=0, verbose=-1,
 )
 
 
@@ -163,6 +164,19 @@ class Ridge:
         return np.column_stack([np.ones(len(x)), (x - self.mu) / self.sd]) @ self.beta
 
 
+class Lgbm:
+    """API nativa do LightGBM (a de scikit-learn exige o scikit-learn instalado)."""
+
+    def fit(self, x: np.ndarray, y: np.ndarray) -> "Lgbm":
+        import lightgbm
+
+        self.booster = lightgbm.train(LGBM_PARAMS, lightgbm.Dataset(x, y), num_boost_round=LGBM_ROUNDS)
+        return self
+
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        return self.booster.predict(x)
+
+
 def nan_safe_predict(model, x: np.ndarray) -> np.ndarray:
     ok = ~np.isnan(x).any(axis=1)
     out = np.full(len(x), np.nan)
@@ -173,8 +187,6 @@ def nan_safe_predict(model, x: np.ndarray) -> np.ndarray:
 
 def run(days: list[Day], h: int) -> tuple[dict[str, list[tuple[str, float]]], list[tuple[str, float]]]:
     """Walk-forward de um horizonte. Devolve {regra: [(dia, bruto_bps), ...]} e a importância do último lgbm."""
-    from lightgbm import LGBMRegressor
-
     trades: dict[str, list[tuple[str, float]]] = {}
     importance: list[tuple[str, float]] = []
 
@@ -184,7 +196,7 @@ def run(days: list[Day], h: int) -> tuple[dict[str, list[tuple[str, float]]], li
     for train_idx, test_idx in folds(len(days)):
         xtr, ytr = stack([days[i] for i in train_idx], h, TRAIN_STRIDE)
         ytr_fit = np.clip(ytr, -CLIP_BPS, CLIP_BPS)
-        models = {"linear": Ridge().fit(xtr, ytr_fit), "lgbm": LGBMRegressor(**LGBM_PARAMS).fit(xtr, ytr_fit)}
+        models = {"linear": Ridge().fit(xtr, ytr_fit), "lgbm": Lgbm().fit(xtr, ytr_fit)}
         cuts = {}
         for name, m in models.items():
             p = np.abs(m.predict(xtr))
@@ -194,7 +206,7 @@ def run(days: list[Day], h: int) -> tuple[dict[str, list[tuple[str, float]]], li
             j = FEATURES.index(f)
             tail_side[f] = math.copysign(1.0, np.corrcoef(xtr[:, j], ytr)[0, 1])
             tail_cut[f] = {q: np.quantile(np.abs(xtr[:, j]), q) for q in QUANTILES}
-        importance = sorted(zip(FEATURES, models["lgbm"].booster_.feature_importance("gain")), key=lambda r: -r[1])
+        importance = sorted(zip(FEATURES, models["lgbm"].booster.feature_importance("gain")), key=lambda r: -r[1])
 
         for i in test_idx:
             d = days[i]

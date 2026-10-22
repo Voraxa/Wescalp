@@ -78,3 +78,13 @@ def test_ridge_recovers_linear_relation():
     y = 3 * x[:, 0] - 2 * x[:, 1] + 1
     p = ml.Ridge(lam=0.0).fit(x, y).predict(np.array([[1.0, 1.0]]))
     assert p[0] == pytest.approx(2.0)
+
+
+def test_lgbm_learns_and_ranks_the_informative_feature():
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(20000, 3))
+    y = 2 * x[:, 0] + rng.normal(size=20000)
+    m = ml.Lgbm().fit(x, y)
+    assert np.corrcoef(m.predict(x), y)[0, 1] > 0.8
+    assert m.booster.feature_importance("gain").argmax() == 0
