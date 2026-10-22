@@ -5,8 +5,10 @@
 set -euo pipefail
 INSTANCE=mi-0a0e856e4884e0559
 export AWS_DEFAULT_REGION=sa-east-1
-export AWS_ACCESS_KEY_ID="${AWS_EC2_ACCESS_KEY_ID:?falta AWS_EC2_ACCESS_KEY_ID}"
-export AWS_SECRET_ACCESS_KEY="${AWS_EC2_SECRET_ACCESS_KEY:?falta AWS_EC2_SECRET_ACCESS_KEY}"
+# Os segredos das sessões vêm com aspas em volta; sem tirar, a AWS responde "token inválido".
+strip_quotes() { local v="${1%\"}"; printf '%s' "${v#\"}"; }
+export AWS_ACCESS_KEY_ID="$(strip_quotes "${AWS_EC2_ACCESS_KEY_ID:?falta AWS_EC2_ACCESS_KEY_ID}")"
+export AWS_SECRET_ACCESS_KEY="$(strip_quotes "${AWS_EC2_SECRET_ACCESS_KEY:?falta AWS_EC2_SECRET_ACCESS_KEY}")"
 unset AWS_SESSION_TOKEN
 
 cd "$(git rev-parse --show-toplevel)"
