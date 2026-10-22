@@ -207,6 +207,7 @@ async def main() -> None:
     p.add_argument("--holdout", type=int, default=16, help="semanas finais intocadas (mínimo 16)")
     p.add_argument("--blocks", type=int, default=16, help="blocos do CSCV (par)")
     p.add_argument("--jobs", type=int, default=1, help="processos para rotular as barreiras")
+    p.add_argument("--save", action="store_true", help="grava o resultado na tabela reports (para o painel)")
     args = p.parse_args()
     if args.holdout < 16:
         raise SystemExit("a varredura não olha as últimas 16 semanas")
@@ -225,14 +226,30 @@ async def main() -> None:
     configs, n_weeks = sweep(candles, barriers, args.jobs)
     t2 = time.perf_counter()
 
-    print(f"{FUTURES_SYMBOL} {candles[0].ts:%Y-%m-%d %H:%M} a {cutoff:%Y-%m-%d %H:%M} (intocado depois), "
-          f"{len(candles)} candles, {n_weeks} semanas completas")
-    print(f"grade: tp {list(TP)} × sl {list(SL)} × tempo {list(BARS)} (ATR 14) = {len(barriers)} barreiras; "
-          f"regras {[BASELINE, *SETUPS]} × lados {list(SIDES)} = {len(configs)} configurações")
+    header = [
+        f"{FUTURES_SYMBOL} {candles[0].ts:%Y-%m-%d %H:%M} a {cutoff:%Y-%m-%d %H:%M} (intocado depois), "
+        f"{len(candles)} candles, {n_weeks} semanas completas",
+        f"grade: tp {list(TP)} × sl {list(SL)} × tempo {list(BARS)} (ATR 14) = {len(barriers)} barreiras; "
+        f"regras {[BASELINE, *SETUPS]} × lados {list(SIDES)} = {len(configs)} configurações",
+    ]
+    print("\n".join(header))
+    sections = []
     for field, title in (("net", "LÍQUIDO (com taxas)"), ("gross", "BRUTO (antes das taxas)")):
+        text = report(configs, candles[0].ts, n_weeks, args.blocks, field)
+        sections.append({"title": title, "text": text})
         print(f"\n=== {title} ===")
-        print(report(configs, candles[0].ts, n_weeks, args.blocks, field))
+        print(text)
     t3 = time.perf_counter()
+    if args.save:
+        conn = await db.connect(DATABASE_URL)
+        try:
+            await db.apply_schema(conn)
+            await db.save_report(conn, "sweep", {
+                "symbol": FUTURES_SYMBOL, "from": candles[0].ts.isoformat(), "to": cutoff.isoformat(),
+                "configs": len(configs), "header": header, "sections": sections,
+            })
+        finally:
+            await conn.close()
     print(f"\ntempo: banco {t1 - t0:.1f} s, rótulos e entradas {t2 - t1:.1f} s ({args.jobs} processo(s)), "
           f"walk-forward/DSR/PBO {t3 - t2:.1f} s, total {t3 - t0:.1f} s")
 

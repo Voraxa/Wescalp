@@ -68,3 +68,11 @@ CREATE TABLE IF NOT EXISTS labels (
     ret_net    double precision NOT NULL,  -- depois das taxas maker/taker
     PRIMARY KEY (config, symbol, side, ts)
 );
+
+-- Resultados dos relatórios de pesquisa (wescalp.research e wescalp.sweep com --save), para o painel.
+CREATE TABLE IF NOT EXISTS reports (
+    name        text        NOT NULL,  -- research | sweep
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    body        jsonb       NOT NULL,
+    PRIMARY KEY (name, created_at)
+);

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from .kucoin import Book, Candle, Trade
 
@@ -143,3 +144,7 @@ async def load_trades(
         [symbol, *params],
     )
     return await cur.fetchall()
+
+
+async def save_report(conn: psycopg.AsyncConnection, name: str, body: dict) -> None:
+    await conn.execute("INSERT INTO reports (name, body) VALUES (%s, %s)", (name, Jsonb(body)))

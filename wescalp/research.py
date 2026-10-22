@@ -77,6 +77,19 @@ def report(candles: list[Candle], barriers: Barriers) -> list[tuple[str, str, di
     return rows
 
 
+def report_body(rows, candles: list[Candle], barriers: Barriers, holdout_weeks: int) -> dict:
+    """O relatório em JSON, para gravar com --save e o painel mostrar."""
+    return {
+        "symbol": FUTURES_SYMBOL,
+        "from": candles[0].ts.isoformat(),
+        "to": candles[-1].ts.isoformat(),
+        "candles": len(candles),
+        "barriers": barriers.name,
+        "holdout_weeks": holdout_weeks,
+        "rows": [{"setup": name, "side": side, **s} for name, side, s in rows],
+    }
+
+
 def format_report(rows) -> str:
     lines = [f"{'setup':<18}{'lado':<7}{'entradas':>9}{'alvo':>7}{'ganha':>7}"
              f"{'bruto(bps)':>12}{'líquido(bps)':>14}{'IC 90%':>18}{'janelas +':>11}"]
@@ -94,21 +107,26 @@ async def main() -> None:
     p.add_argument("--bars", type=int, default=Barriers.max_bars, help="candles até sair por tempo")
     p.add_argument("--atr", type=int, default=Barriers.atr_period, help="período do ATR")
     p.add_argument("--holdout", type=int, default=16, help="semanas finais fora do relatório")
+    p.add_argument("--save", action="store_true", help="grava o resultado na tabela reports (para o painel)")
     args = p.parse_args()
 
     conn = await db.connect(DATABASE_URL)
     try:
         candles = await db.load_candles(conn, "futures", FUTURES_SYMBOL)
+        if args.holdout and candles:
+            cutoff = candles[-1].ts - timedelta(weeks=args.holdout)
+            candles = [c for c in candles if c.ts < cutoff]
+        if not candles:
+            raise SystemExit("sem candles no período")
+        barriers = Barriers(args.tp, args.sl, args.bars, args.atr)
+        rows = report(candles, barriers)
+        print(f"{FUTURES_SYMBOL} {candles[0].ts:%Y-%m-%d} a {candles[-1].ts:%Y-%m-%d}, {len(candles)} candles, {barriers.name}")
+        print(format_report(rows))
+        if args.save:
+            await db.apply_schema(conn)
+            await db.save_report(conn, "research", report_body(rows, candles, barriers, args.holdout))
     finally:
         await conn.close()
-    if args.holdout and candles:
-        cutoff = candles[-1].ts - timedelta(weeks=args.holdout)
-        candles = [c for c in candles if c.ts < cutoff]
-    if not candles:
-        raise SystemExit("sem candles no período")
-    barriers = Barriers(args.tp, args.sl, args.bars, args.atr)
-    print(f"{FUTURES_SYMBOL} {candles[0].ts:%Y-%m-%d} a {candles[-1].ts:%Y-%m-%d}, {len(candles)} candles, {barriers.name}")
-    print(format_report(report(candles, barriers)))
 
 
 if __name__ == "__main__":

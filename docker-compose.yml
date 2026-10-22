@@ -1,4 +1,4 @@
-# Wescalp na VPS: banco + coletor ao vivo. Backfill e rótulos rodam sob demanda:
+# Wescalp na VPS: banco, coletor ao vivo e candles em dia. Backfill e rótulos avulsos rodam sob demanda:
 #   docker compose run --rm backfill --weeks 100
 #   docker compose run --rm labels --tp 1.5 --sl 1 --bars 12
 name: wescalp
@@ -35,26 +35,17 @@ services:
       retries: 3
     mem_limit: 256m
 
-  health:
-    # Vigia: avisa (webhook/Telegram) quando o livro ou os negócios param, o banco some ou o disco enche.
-    # Sem depends_on de saúde: se o banco não subir, o vigia precisa estar de pé para avisar.
+  candles:
+    # Mantém a tabela candles em dia para o painel: completa as 100 semanas e depois busca os novos a cada minuto.
     build: .
     restart: unless-stopped
-    command: ["python", "-m", "wescalp.health", "--watch"]
+    entrypoint: ["python", "-m", "wescalp.backfill", "--weeks", "100", "--follow"]
     environment:
       DATABASE_URL: postgresql://wescalp:${WESCALP_DB_PASSWORD}@db:5432/wescalp
-      # Mesmo volume do banco, só leitura: mede o espaço livre do disco onde o Postgres grava.
-      WESCALP_HEALTH_DISK_PATH: /pgdata
-      WESCALP_ALERT_WEBHOOK: ${WESCALP_ALERT_WEBHOOK:-}
-      WESCALP_TELEGRAM_TOKEN: ${WESCALP_TELEGRAM_TOKEN:-}
-      WESCALP_TELEGRAM_CHAT_ID: ${WESCALP_TELEGRAM_CHAT_ID:-}
-      WESCALP_HEALTH_INTERVAL_S: ${WESCALP_HEALTH_INTERVAL_S:-60}
-      WESCALP_HEALTH_REPEAT_HOURS: ${WESCALP_HEALTH_REPEAT_HOURS:-6}
-    volumes:
-      - db-data:/pgdata:ro
     depends_on:
-      - db
-    mem_limit: 96m
+      db:
+        condition: service_healthy
+    mem_limit: 256m
 
   backfill:
     build: .

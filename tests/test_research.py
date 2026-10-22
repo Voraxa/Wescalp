@@ -87,3 +87,16 @@ def test_stats_windows_and_interval():
     s = stats([lb for lb in labels if lb.side == "long"], T0)
     assert s["n"] == 16 and s["win"] == 0 and s["windows"] == 1 and s["windows_pos"] == 0
     assert s["lo_bps"] <= s["net_bps"] <= s["hi_bps"]
+
+
+def test_report_body_is_json_ready():
+    import json
+
+    from wescalp.research import report, report_body
+
+    cs = [candle(i, 100, 101, 99, 100) for i in range(40)]
+    b = Barriers(max_bars=3, atr_period=2)
+    body = report_body(report(cs, b), cs, b, 16)
+    assert body["barriers"] == b.name and body["holdout_weeks"] == 16
+    assert {r["setup"] for r in body["rows"]} == {"todos os candles", "breakout", "vwap_reversion", "pullback"}
+    json.dumps(body)
