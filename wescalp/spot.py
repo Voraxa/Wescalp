@@ -47,12 +47,13 @@ BARS_PER_DAY = 86400 // brain.BAR
 CONTEXTS = (15, 60, 240, 1440)
 MIN_CYCLE_WIN = 0.85  # 80% pedido + folga
 MIN_CAL_CYCLES = 10
+MIN_PER_DAY = 2  # pedido: pelo menos 2 ciclos por dia
 LGBM_ROUNDS = 200
 LGBM_PARAMS = dict(
     objective="binary", learning_rate=0.03, num_leaves=7, min_data_in_leaf=300, feature_fraction=0.7,
     bagging_fraction=0.7, bagging_freq=1, lambda_l2=10.0, seed=0, num_threads=1, verbose=-1,
 )
-JUIZ, GATILHOS, CEGO = "juiz", "gatilhos sem juiz", "DCA cego (qualquer candle)"
+JUIZ, JUIZ2, GATILHOS, CEGO = "juiz", "juiz ≥ 2/dia", "gatilhos sem juiz", "DCA cego (qualquer candle)"
 
 
 class Crossing:
@@ -172,22 +173,35 @@ def fit_lgbm(x: np.ndarray, y: np.ndarray):
     return lightgbm.train(LGBM_PARAMS, lightgbm.Dataset(x, y.astype(float)), num_boost_round=LGBM_ROUNDS)
 
 
-def choose_cut(f: brain.Frame, lo: int, hi: int, cand: np.ndarray, p: np.ndarray, tp: float) -> tuple[float, bool]:
-    """Corte de nota na calibração [lo, hi): o de maior lucro com ≥ MIN_CYCLE_WIN dos ciclos no lucro e pelo
-    menos MIN_CAL_CYCLES ciclos. Sem nenhum assim, o de maior acerto (marcado False)."""
+def choose_cuts(f: brain.Frame, lo: int, hi: int, cand: np.ndarray, p: np.ndarray,
+                tp: float) -> tuple[tuple[float, bool], tuple[float, bool]]:
+    """Dois cortes de nota na calibração [lo, hi), cada um com True se cumpriu a meta:
+    1. o de maior lucro com ≥ MIN_CYCLE_WIN dos ciclos no lucro e ≥ MIN_CAL_CYCLES ciclos; sem nenhum assim, o de
+       maior acerto;
+    2. o mesmo exigindo também ≥ MIN_PER_DAY ciclos por dia; sem nenhum assim, o de maior lucro entre os que dão
+       ≥ MIN_PER_DAY por dia, ou o mais frequente.
+    """
+    days = max((f.ts[hi - 1] - f.ts[lo]) / 86400, 1e-9)
     scores = p[lo:hi][cand[lo:hi]]
-    tried = []
+    tried = []  # (corte, acerto, total, ciclos, ciclos por dia)
     for t in sorted(set(np.quantile(scores, brain.CUT_LEVELS))) if len(scores) else []:
         pol = simulate(f, lo, hi, hi, lambda k: cand[k] and p[k] >= t, tp)
-        if len(pol.trades) >= MIN_CAL_CYCLES:
+        if pol.trades:
             r = np.array([x.ret_bps for x in pol.trades])
-            tried.append((t, float((r > 0).mean()), float(r.sum())))
-    ok = [x for x in tried if x[1] >= MIN_CYCLE_WIN]
-    if ok:
-        return max(ok, key=lambda x: x[2])[0], True
+            tried.append((t, float((r > 0).mean()), float(r.sum()), len(r), len(r) / days))
     if not tried:
-        return math.inf, False
-    return max(tried, key=lambda x: (x[1], x[2]))[0], False
+        return (math.inf, False), (math.inf, False)
+    ok = [x for x in tried if x[1] >= MIN_CYCLE_WIN and x[3] >= MIN_CAL_CYCLES]
+    if ok:
+        first = (max(ok, key=lambda x: x[2])[0], True)
+    else:
+        first = (max([x for x in tried if x[3] >= MIN_CAL_CYCLES] or tried, key=lambda x: (x[1], x[2]))[0], False)
+    ok2 = [x for x in ok if x[4] >= MIN_PER_DAY]
+    if ok2:
+        return first, (max(ok2, key=lambda x: x[2])[0], True)
+    frequent = [x for x in tried if x[4] >= MIN_PER_DAY]
+    second = max(frequent, key=lambda x: x[2]) if frequent else max(tried, key=lambda x: x[4])
+    return first, (second[0], False)
 
 
 @dataclass
@@ -198,6 +212,7 @@ class TpRun:
     end: int
     folds: int
     folds_met: int
+    folds_met2: int
     base_good: float  # fração de boas entradas entre todos os candles de teste (o acaso)
     importance: list[tuple[str, float]]
 
@@ -224,8 +239,8 @@ def walk_forward(f: brain.Frame, x: np.ndarray, names: list[str], tp: float,
         return cache[i]
 
     p = np.full(len(f.ts), np.nan)
-    cut = np.full(len(f.ts), np.inf)
-    folds = met = 0
+    cut, cut2 = np.full(len(f.ts), np.inf), np.full(len(f.ts), np.inf)
+    folds = met = met2 = 0
     importance: list[tuple[str, float]] = []
     test_lo = None
     for s in range(0, dev_weeks - brain.TRAIN_WEEKS - brain.TEST_WEEKS + 1, brain.TEST_WEEKS):
@@ -239,21 +254,23 @@ def walk_forward(f: brain.Frame, x: np.ndarray, names: list[str], tp: float,
             idx = np.flatnonzero(cand[a:b]) + a
             if len(idx):
                 p[idx] = booster.predict(x[idx])
-        t, ok = choose_cut(f, cal_lo, te_lo, cand, p, tp)
-        cut[te_lo:te_hi] = t
+        (t, ok), (t2, ok2) = choose_cuts(f, cal_lo, te_lo, cand, p, tp)
+        cut[te_lo:te_hi], cut2[te_lo:te_hi] = t, t2
         test_lo = te_lo if test_lo is None else test_lo
-        folds, met = folds + 1, met + ok
+        folds, met, met2 = folds + 1, met + ok, met2 + ok2
         gain = booster.feature_importance("gain")
         importance = sorted(zip(names, gain / gain.sum()), key=lambda r: -r[1])
 
     policies = {
         JUIZ: simulate(f, test_lo, end, end, lambda k: cand[k] and p[k] >= cut[k], tp, good),
+        JUIZ2: simulate(f, test_lo, end, end, lambda k: cand[k] and p[k] >= cut2[k], tp, good),
         GATILHOS: simulate(f, test_lo, end, end, lambda k: cand[k], tp, good),
         CEGO: simulate(f, test_lo, end, end, lambda k: True, tp, good),
     }
     sample = range(test_lo, end, 12)  # o acaso: uma entrada por hora
     goods = [g for g in (good(i) for i in sample) if g is not None]
-    return TpRun(tp, policies, test_lo, end, folds, met, float(np.mean(goods)) if goods else math.nan, importance)
+    return TpRun(tp, policies, test_lo, end, folds, met, met2, float(np.mean(goods)) if goods else math.nan,
+                 importance)
 
 
 def stats(pol: Policy, f: brain.Frame, lo: int, end: int) -> dict:
@@ -284,12 +301,36 @@ def stats(pol: Policy, f: brain.Frame, lo: int, end: int) -> dict:
     return out
 
 
+def years_of(f: brain.Frame, idx) -> np.ndarray:
+    return f.ts[idx].astype("datetime64[s]").astype("datetime64[Y]").astype(int) + 1970
+
+
+def yearly(pol: Policy, f: brain.Frame) -> dict[int, float]:
+    """Resultado por ano (pelo dia da saída), em % do capital."""
+    out: dict[int, float] = {}
+    for t in pol.trades:
+        y = int(years_of(f, t.exit_i))
+        out[y] = out.get(y, 0.0) + t.ret_bps / 100
+    return out
+
+
+def hold_yearly(f: brain.Frame, lo: int, end: int) -> dict[int, float]:
+    """Segurar o BTC dentro de cada ano do período [lo, end), em %."""
+    years = years_of(f, np.arange(lo, end))
+    out = {}
+    for y in np.unique(years):
+        idx = np.flatnonzero(years == y) + lo
+        out[int(y)] = (f.close[idx[-1]] / f.open[idx[0]] - 1) * 100
+    return out
+
+
 def format_run(run: TpRun, f: brain.Frame) -> str:
     head = (f"{'regra':<28}{'ciclos':>7}{'/dia':>6}{'compras/dia':>12}{'entrada boa':>12}{'acerto':>8}"
             f"{'ganho':>8}{'perda':>8}{'líq/ciclo':>10}{'total':>9}{'pior':>8}{'queda':>8}{'stops':>7}"
-            f"{'c/ DCA':>8}{'dias':>6}{'dias90':>7}{'posic.':>7}{'sem+':>7}")
-    lines = [f"\nalvo {run.tp:.0%}, stop {STOP_MULT * run.tp:.0%} abaixo da entrada: {run.folds} rodadas, juiz"
-             f" dentro da meta na calibração em {run.folds_met}; entrada boa ao acaso {run.base_good:.1%}", head]
+            f"{'c/ DCA':>8}{'dias':>6}{'dias90':>7}{'posic.':>7}{'sem+':>9}")
+    lines = [f"\nalvo {run.tp:.1%}, stop {STOP_MULT * run.tp:.1%} abaixo da entrada: {run.folds} rodadas; meta da"
+             f" calibração cumprida pelo juiz em {run.folds_met} e pelo juiz ≥ 2/dia em {run.folds_met2};"
+             f" entrada boa ao acaso {run.base_good:.1%}", head]
     for name, pol in run.policies.items():
         s = stats(pol, f, run.lo, run.end)
         if not s["n"]:
@@ -300,8 +341,14 @@ def format_run(run: TpRun, f: brain.Frame) -> str:
             f"{s['avg_win'] / 100:>7.2f}%{s['avg_loss'] / 100:>7.2f}%{s['mean'] / 100:>9.2f}%"
             f"{s['total'] / 100:>8.1f}%{s['worst'] / 100:>7.1f}%{s['dd'] / 100:>7.1f}%{s['stops']:>7.1%}"
             f"{s['dca']:>8.1%}{s['held']:>6.1f}{s['held90']:>7.1f}{s['in_market']:>7.0%}"
-            f"{s['weeks_pos']:>4}/{s['weeks']}"
+            f"{s['weeks_pos']:>5}/{s['weeks']}"
         )
+    hold = hold_yearly(f, run.lo, run.end)
+    per = {name: yearly(pol, f) for name, pol in run.policies.items()}
+    lines.append("por ano, em % do capital (segurar = BTC comprado na abertura do ano e vendido no fechamento):")
+    lines.append(f"{'ano':<6}" + "".join(f"{n[:22]:>24}" for n in per) + f"{'segurar BTC':>14}")
+    for y in sorted(hold):
+        lines.append(f"{y:<6}" + "".join(f"{per[n].get(y, 0.0):>23.1f}%" for n in per) + f"{hold[y]:>13.1f}%")
     return "\n".join(lines)
 
 
@@ -321,38 +368,44 @@ def _work(tp: float) -> TpRun:
 
 
 def run(args) -> None:
+    import multiprocessing
     from concurrent.futures import ProcessPoolExecutor
 
     from .validation import deflated_sharpe, sharpe
 
-    candles = brain.load_candles(brain.candle_path(SYMBOL, args.data), SYMBOL, "spot")
+    path = args.file or brain.candle_path(SYMBOL, args.data)
+    candles = brain.load_candles(path, SYMBOL, "spot")
     if not candles:
-        raise SystemExit("sem candles; rode antes: python -m wescalp.spot fetch")
+        raise SystemExit(f"sem candles em {path}; rode antes: python -m wescalp.spot fetch")
     f = brain.build(candles, CONTEXTS)
     x, names = brain.model_matrix(f)
+    x = x.astype(np.float32)
     fmt = lambda t: datetime.fromtimestamp(int(t), timezone.utc).strftime("%Y-%m-%d")  # noqa: E731
-    print(f"{SYMBOL} spot 5 min: {len(candles)} candles de {fmt(f.ts[0])} a {fmt(f.ts[-1])};"
-          f" intocadas as últimas {args.holdout} semanas")
+    print(f"{path.name}: {len(candles)} candles de 5 min de {fmt(f.ts[0])} a {fmt(f.ts[-1])};"
+          f" intocadas as últimas {args.holdout} semanas do arquivo")
     print(f"taxa {FEE:.1%} por compra e por venda; DCA só com novo sinal e {MAX_PARTS - 1} aportes no máximo;"
           f" {MAX_DAYS} dias no máximo por ciclo")
     print("entrada boa = a 1ª compra subiu o alvo antes de cair o alvo; acerto = ciclos com líquido > 0;"
           " ganho/perda/líq/total/pior/queda em % do capital do ciclo; queda = maior queda marcada a mercado;"
           " dias = mediana do ciclo; posic. = tempo comprado", flush=True)
-    with ProcessPoolExecutor(len(TPS), initializer=_init, initargs=(f, x, names, args.holdout)) as pool:
-        runs = list(pool.map(_work, TPS))
+    _init(f, x, names, args.holdout)  # os processos herdam os dados (fork) em vez de copiá-los
+    with ProcessPoolExecutor(len(args.tps), mp_context=multiprocessing.get_context("fork")) as pool:
+        runs = list(pool.map(_work, args.tps))
     lo, end = runs[0].lo, runs[0].end
     print(f"\nperíodo de teste: {fmt(f.ts[lo])} a {fmt(f.ts[end - 1])};"
           f" segurar BTC: {f.close[end - 1] / f.open[lo] - 1:+.1%}")
     for r in runs:
         print(format_run(r, f), flush=True)
-    weekly = {r.tp: stats(r.policies[JUIZ], f, r.lo, r.end) for r in runs}
-    trials = [sharpe(s["weekly"]) for s in weekly.values() if s["n"]]
-    best = max((r for r in runs if weekly[r.tp]["n"]), key=lambda r: weekly[r.tp]["total"], default=None)
-    if best is not None:
-        s = weekly[best.tp]
-        print(f"\nmelhor juiz por total: alvo {best.tp:.0%}, total {s['total'] / 100:+.1f}%, Sharpe semanal"
-              f" {sharpe(s['weekly']):.2f}, DSR entre {len(trials)} alvos {deflated_sharpe(s['weekly'], trials):.3f}")
-        print("importância no último juiz: " + ", ".join(f"{n} {g:.0%}" for n, g in best.importance[:8]))
+    juizes = {(r.tp, name): stats(r.policies[name], f, r.lo, r.end) for r in runs for name in (JUIZ, JUIZ2)}
+    trials = [sharpe(s["weekly"]) for s in juizes.values() if s["n"]]
+    done = [k for k, s in juizes.items() if s["n"]]
+    if done:
+        tp, name = max(done, key=lambda k: juizes[k]["total"])
+        s = juizes[tp, name]
+        print(f"\nmelhor juiz por total: {name}, alvo {tp:.1%}, total {s['total'] / 100:+.1f}%, Sharpe semanal"
+              f" {sharpe(s['weekly']):.2f}, DSR entre {len(trials)} juízes {deflated_sharpe(s['weekly'], trials):.3f}")
+        imp = next(r for r in runs if r.tp == tp).importance
+        print("importância no último juiz desse alvo: " + ", ".join(f"{n} {g:.0%}" for n, g in imp[:8]))
 
 
 def main() -> None:
@@ -361,10 +414,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data", type=Path, default=brain.CANDLE_DIR, help="pasta dos candles")
     sub = p.add_subparsers(dest="cmd", required=True)
-    fe = sub.add_parser("fetch", help="baixa ou completa os candles de 5 min do BTC-USDT")
+    fe = sub.add_parser("fetch", help="baixa ou completa os candles de 5 min do BTC-USDT da KuCoin")
     fe.add_argument("--weeks", type=int, default=brain.WEEKS)
     r = sub.add_parser("run", help="walk-forward do juiz e relatório")
-    r.add_argument("--holdout", type=int, default=brain.HOLDOUT_WEEKS, help="últimas semanas intocadas")
+    r.add_argument("--file", type=Path, help="arquivo de candles (padrão: o da KuCoin; ex.: o de wescalp.binance)")
+    r.add_argument("--tps", type=float, nargs="+", default=list(TPS), help="alvos (fração), ex.: 0.01 0.015")
+    r.add_argument("--holdout", type=int, default=brain.HOLDOUT_WEEKS, help="últimas semanas do arquivo intocadas")
     args = p.parse_args()
     if args.cmd == "fetch":
         cs = asyncio.run(brain.fetch(SYMBOL, args.weeks, brain.candle_path(SYMBOL, args.data), "spot"))

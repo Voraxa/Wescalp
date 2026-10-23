@@ -115,3 +115,55 @@ def test_no_new_decisions_after_hi_but_exits_continue():
     f = frame(flat(n), highs, flat(n, 99.5), flat(n))
     pol = spot.simulate(f, 0, 3, n, lambda k: True, 0.02, fee=0.0)
     assert [(t.signal_i, t.outcome, t.exit_i) for t in pol.trades] == [(0, "tp", 9)]
+
+
+def test_choose_cuts_profit_cut_and_two_per_day_cut(monkeypatch):
+    n = 2880  # 10 dias de candles de 5 min; um candidato a cada 18 candles = 16 por dia
+    f = frame(flat(n), flat(n), flat(n), flat(n))
+    cand = np.arange(n) % 18 == 0
+    p = np.where(cand, (np.arange(n) // 18) / 160, np.nan)
+
+    def ret(j: int) -> float:
+        if j >= 144:
+            return 1000.0
+        if j == 140:
+            return -100.0
+        return 1.0 if j >= 128 else -10.0
+
+    def fake(f, lo, hi, end, signal, tp, *a, **k):
+        trades = [spot.Trade(i, i, "tp", 1, ret(i // 18), None) for i in range(lo, hi) if signal(i)]
+        return spot.Policy(trades, 0.0, 0, len(trades))
+
+    monkeypatch.setattr(spot, "simulate", fake)
+    (c1, ok1), (c2, ok2) = spot.choose_cuts(f, 0, n, cand, p, 0.01)
+    scores = p[cand]
+    # Maior lucro: os 16 melhores (1,6/dia). Com ≥ 2/dia: desce até os 32 melhores (3,2/dia, 31 de 32 no lucro).
+    assert ok1 and c1 == pytest.approx(np.quantile(scores, 0.9))
+    assert ok2 and c2 == pytest.approx(np.quantile(scores, 0.8))
+
+
+def test_choose_cuts_flags_when_unreachable(monkeypatch):
+    n = 2880
+    f = frame(flat(n), flat(n), flat(n), flat(n))
+    cand = np.arange(n) % 18 == 0
+    p = np.where(cand, (np.arange(n) // 18) / 160, np.nan)
+
+    def fake(f, lo, hi, end, signal, tp, *a, **k):  # metade perde em qualquer corte
+        trades = [spot.Trade(i, i, "tp", 1, 1.0 if (i // 18) % 2 else -1.0, None) for i in range(lo, hi) if signal(i)]
+        return spot.Policy(trades, 0.0, 0, len(trades))
+
+    monkeypatch.setattr(spot, "simulate", fake)
+    (c1, ok1), (c2, ok2) = spot.choose_cuts(f, 0, n, cand, p, 0.01)
+    assert not ok1 and not ok2 and np.isfinite(c1) and np.isfinite(c2)
+
+
+def test_yearly_and_hold_by_calendar_year():
+    t0 = 1_767_225_000  # 2025-12-31 23:50 UTC
+    ts = [t0, t0 + 300, t0 + 600, t0 + 900]
+    f = brain.Frame(np.array(ts, dtype=np.int64), np.array([100.0, 101.0, 102.0, 104.0]), np.full(4, 110.0),
+                    np.full(4, 90.0), np.array([101.0, 102.0, 103.0, 105.06]), np.full(4, np.nan),
+                    np.zeros((4, 1)), ["x"], {})
+    hold = spot.hold_yearly(f, 0, 4)
+    assert hold[2025] == pytest.approx(2.0) and hold[2026] == pytest.approx(3.0)
+    pol = spot.Policy([spot.Trade(0, 1, "tp", 1, 150.0, None), spot.Trade(1, 3, "sl", 1, -50.0, None)], 0, 0, 2)
+    assert spot.yearly(pol, f) == {2025: pytest.approx(1.5), 2026: pytest.approx(-0.5)}
