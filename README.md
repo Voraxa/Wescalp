@@ -542,6 +542,26 @@ Nenhuma passa na regra fixada: todas perdem com a taxa do spot. Mesmo assim, é 
   paga a taxa.
 - **Momento intradiário:** não se repetiu.
 
+### Por que procurar um vale menor não resolve
+
+A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
+06/2026, com candles da Binance:
+
+| Candle | Movimento médio de um candle | Acerto de direção necessário para empatar com a taxa |
+| --- | --- | --- |
+| 5 min | 0,12% | impossível: mesmo acertando todos, perde |
+| 15 min | 0,20% | 99% |
+| 1 h | 0,40% | 75% |
+| 4 h | 0,81% | 62% |
+| 1 dia | 2,1% a 2,3% | 52% |
+
+Os modelos testados acertam a direção de 50% a 52% das vezes, o que só basta no diário; por isso só o diário
+funcionou. Esse acerto de direção é outra coisa que o acerto dos ciclos, que sai alto com alvo pequeno e stop longe.
+
+A regra "comprar quando o candle fecha abaixo da abertura do anterior (ou de dois antes)" aparece em cerca de metade
+dos candles. Depois dela, o preço sobe em média de 0,003% (5 min) a 0,03% (1 h e 4 h) nos candles seguintes: de 7 a 70
+vezes menos que a taxa.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
