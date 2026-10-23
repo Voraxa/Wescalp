@@ -334,6 +334,45 @@ As notícias mexem com o BTC, mas sem direção:
 
 Reduzir a posição nesses dias custa mais, em taxa e em alta perdida, do que evita em queda.
 
+### Prova única em 2013–2017
+
+`WESCALP_UNLOCK=prova-unica python -m wescalp.proof` rodou uma vez só, em 23/10:
+
+- os critérios foram registrados antes, no commit `81737f3`;
+- o SHA-256 dos dados foi conferido;
+- período: 01/01/2013 a 16/08/2017 (1.689 dias), BTC/USD da Bitstamp, 0,1% por lado.
+
+| Estratégia | Total | Ao ano | Queda máx. | Sharpe | p da sorte | Resultado |
+| --- | --- | --- | --- | --- | --- | --- |
+| segurar BTC | +32.940% | 250,5% | 85% | 1,84 | — | — |
+| congelada 50/100/150 | +26.615% | 234,8% | 69% | 1,98 | 0,100 | não passou (sorte) |
+| aprendiz | +40.421% | 266,4% | 70% | 2,06 | 0,059 | não passou (sorte) |
+
+Por ano, a congelada contra segurar:
+
+| Ano | Congelada | Segurar |
+| --- | --- | --- |
+| 2013 | +3.367% | +5.423% |
+| 2014 | -21% | -56% |
+| 2015 | +43% | +34% |
+| 2016 | +91% | +124% |
+| 2017 (até 16/08) | +255% | +353% |
+
+- **A regra fez o que faz:** na queda lenta de 2014 (o BTC caiu 85% do topo de dez/2013 a jan/2015), ela perdeu 21%
+  no ano, contra 56% de segurar. Teve lucro e Sharpe acima de segurar.
+- **Mas não passou no teste da sorte:** 10% dos sorteios, com o mesmo tempo comprado em momentos ao acaso, tiveram
+  Sharpe igual ou maior. A régua aceita no máximo 5%. Numa época em que o BTC se multiplicou por 330, quase qualquer
+  exposição alta rende muito.
+- **A queda máxima da congelada (69%) veio do crash de abril de 2013:** o BTC despencou em uma semana (09 a 16/04),
+  com a regra 96% comprada. Uma regra de médias diárias não consegue sair de uma queda de poucos dias.
+- **As regras clássicas trocam de lugar entre as épocas:** a média de 200 dias e o momento de 180 dias, que não
+  passaram em 2018–2026, ficaram entre as melhores aqui. Todas as regras de tendência tiveram Sharpe acima de
+  segurar (1,91 a 2,07, contra 1,84). O que se repete nas duas épocas é seguir tendência perder menos nas quedas
+  lentas (2014, 2022), não uma média específica.
+
+Pela regra fixada, a congelada não ganha nesta época a prova de que não é sorte. No painel ela segue como estava. O
+trecho trancado já foi usado: ideias novas passam a ser julgadas pelo walk-forward e pelo período ao vivo.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
