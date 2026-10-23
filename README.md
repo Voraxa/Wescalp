@@ -148,6 +148,33 @@ em 2020 (+302% do BTC) o melhor juiz fez +63%. O juiz ≥ 2/dia nunca achou cort
 na calibração. O modelo aprende o treino (AUC 0,82 a 0,92) e fora dele oscila de 0,30 a 0,74 conforme o regime,
 média perto de 0,5 (DSR 0,000 entre 6 juízes).
 
+## Tendência diária (regime)
+
+`python -m wescalp.regime --file data/candles/BINANCE-BTCUSDT-5m.csv.gz` testa ficar comprado no BTC spot só
+quando a tendência diária é de alta, com 9 regras clássicas fixadas antes (médias de 50, 100, 150 e 200 dias,
+cruzamentos 20/50 e 50/200, momento de 30, 90 e 180 dias), decisão no fechamento valendo para o dia seguinte e
+0,1% por lado. O teste da sorte embaralha o momento dos trechos comprado e fora, mantendo o número de operações, o
+tempo comprado e a duração de cada uma (2.000 sorteios). `--cycles 0.02 0.03` roda os ciclos de `wescalp.spot`
+(DCA com novo sinal, stop 3 alvos abaixo) só nos dias em que a regra está comprada, contra 200 sorteios.
+
+Primeira rodada (23/10, de 11/10/2018 a 30/06/2026; segurar o BTC: +783%, 32,6% ao ano, queda máxima de 77%):
+
+| Regra | Total | Ao ano | Queda máx. | Sharpe | Operações/ano | Acerto/operação | p da sorte (total) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| média de 50 dias | +3.305% | 57,9% | 58% | 1,28 | 9,7 | 25% | 0,004 |
+| média de 100 dias | +2.474% | 52,3% | 38% | 1,18 | 6,3 | 22% | 0,029 |
+| média de 150 dias | +2.278% | 50,7% | 45% | 1,15 | 4,0 | 26% | 0,040 |
+| momento de 30 dias | +2.006% | 48,4% | 47% | 1,13 | 15,2 | 37% | 0,018 |
+| média de 200 dias | +897% | 34,7% | 64% | 0,89 | 3,9 | 23% | 0,180 |
+
+As regras de 50 a 150 dias passam no teste da sorte e o Sharpe continua acima de zero mesmo contando 1.000
+tentativas (DSR de 0,96 a 0,98); as lentas (200 dias, 50/200, momento de 90 e 180) não se distinguem da sorte. O
+ganho é ficar fora das quedas (2022: -64% do BTC, -21% da média de 100 dias); render mais que segurar o BTC ainda
+não está provado (P(excesso > 0) de 0,58 a 0,71). Os ciclos dentro da regra viram positivos e passam no sorteio
+(p de 0,000 a 0,020), com 82% a 84% de ciclos no lucro, mas rendem pouco: média de 100 dias + alvo de 3% fez +205%
+composto (15,5% ao ano, queda máxima de 41%, 0,27 ciclo por dia), contra +2.474% de só seguir a regra. Ciclos com
+alvo de 1% (2 por dia) perdem mesmo dentro da tendência.
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede
