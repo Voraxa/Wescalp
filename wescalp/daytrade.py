@@ -26,6 +26,10 @@ Fixado antes de rodar (23/10/2026), sem ajuste depois:
 - passa a variante que, com 0,1% por lado, de 2021 a 06/2026, tiver lucro, Sharpe maior que o de segurar o BTC,
   p ≤ 0,0125 (0,05 dividido pelas 4 variantes) e 2 ciclos ou mais em pelo menos 80% dos dias. Quem passar vai uma vez
   para as 16 semanas intocadas (07 a 10/2026) e depois para a carteira simulada.
+
+`--sem-dca` (fixado em 23/10/2026, depois da primeira rodada, antes de rodar esta): as mesmas 4 variantes com uma
+compra só, usando de uma vez o capital das 3 partes (1 × a camada do dia), o mesmo alvo, o stop no mesmo preço (3
+passos abaixo da compra) e 12 h no máximo; mesma régua.
 """
 
 import argparse
@@ -39,7 +43,6 @@ import numpy as np
 from . import flowdata, intraday, refine, regime, spot, study
 
 H, DAY = 3600, 86400
-TRANCHE = 1 / 3
 FORCED_SIZE = 0.5
 FORCE_FIRST, FORCE_SECOND = 12, 18
 QUANTILE = 0.8
@@ -60,9 +63,12 @@ class Geometry:
     step: float  # espaçamento do DCA, abaixo da primeira compra
     stop: float  # stop da posição inteira, abaixo da primeira compra
     bars: int  # tempo máximo, em candles de 5 min
+    parts: int = 3  # compras por ciclo, cada uma com 1/parts do capital; 1 = sem DCA
 
 
 GEOMETRIES = {"passo 0,6%": Geometry(0.006, 0.006, 0.018, 144), "passo 1,0%": Geometry(0.010, 0.010, 0.030, 144)}
+NO_DCA = {"sem DCA, alvo 0,6%": Geometry(0.006, 0.006, 0.018, 144, 1),
+          "sem DCA, alvo 1,0%": Geometry(0.010, 0.010, 0.030, 144, 1)}
 
 
 @dataclass
@@ -92,7 +98,7 @@ def cycle(o, h, l, c, up: spot.Crossing, dn: spot.Crossing, i: int, size: float,
     first = c[i]
     last = min(i + g.bars, len(c) - 1)
     cy = Cycle(i, last, "tempo", size, [(i, first)])
-    levels = [first * (1 - g.step), first * (1 - 2 * g.step)]
+    levels = [first * (1 - k * g.step) for k in range(1, g.parts)]
     stop = first * (1 - g.stop)
     start = i + 1
 
@@ -213,7 +219,7 @@ def run(m: Market, decision: np.ndarray, signal: np.ndarray, z: np.ndarray, g: G
         i = m.bar(t)
         if i >= len(m.ts) or m.ts[i] != t - 300:
             continue  # falta o candle da decisão
-        size = TRANCHE * m.regime.get(day, 1 / 3) * (1 if by_signal else FORCED_SIZE)
+        size = m.regime.get(day, 1 / 3) * (1 if by_signal else FORCED_SIZE) / g.parts
         cy = cycle(m.open, m.high, m.low, m.close, m.up, m.dn, i, size, g)
         cy.forced = not by_signal
         cycles.append(cy)
@@ -308,7 +314,9 @@ def main() -> None:
     p.add_argument("--file", type=Path, required=True)
     p.add_argument("--data", type=Path, default=flowdata.DATA_DIR)
     p.add_argument("--luck", type=int, default=LUCK)
+    p.add_argument("--sem-dca", action="store_true", help="uma compra só por ciclo (ver o cabeçalho)")
     args = p.parse_args()
+    geometries = NO_DCA if args.sem_dca else GEOMETRIES
     ts, o, h, l, c = study.load(args.file)
     flow, perp, premium, funding, metrics = (flowdata.load(k, args.data) for k in
                                              ("spot-flow", "perp", "premium", "funding", "metrics"))
@@ -333,7 +341,7 @@ def main() -> None:
           f" sinal em {signal.mean():.0%} das horas")
     bench = benchmark(m, d, days)
     results = {}
-    for gname, g in GEOMETRIES.items():
+    for gname, g in geometries.items():
         for judge in (False, True):
             name = f"{gname}{' com juiz' if judge else ''}"
             cycles = run(m, decision, signal, z, g, judge)

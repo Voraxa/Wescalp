@@ -73,7 +73,18 @@ def test_forced_entries_guarantee_two_cycles_a_day():
                           daytrade.Geometry(0.01, 0.01, 0.03, 144), judge=False)
     starts = [(int(m.ts[c.entry]) + 300) // 3600 for c in cycles]
     assert starts[:2] == [12, 18] and all(c.forced for c in cycles)
-    assert cycles[0].size == pytest.approx(daytrade.TRANCHE / 3 * daytrade.FORCED_SIZE)  # sem regime: um terço
+    assert cycles[0].size == pytest.approx(1 / 3 / 3 * daytrade.FORCED_SIZE)  # 1/3 por parte; sem regime: um terço
+
+
+def test_without_dca_one_buy_with_the_whole_size():
+    o, h, l, c, up, dn = bars(flat(1) + [(100, 100, 98.9, 99.0), (99, 99, 96.9, 97.0)] + flat(5, 97))
+    g = daytrade.Geometry(0.01, 0.01, 0.03, 20, parts=1)
+    cy = daytrade.cycle(o, h, l, c, up, dn, 0, 0.9, g)
+    assert len(cy.fills) == 1 and cy.outcome == "stop" and cy.exit_px == 97.0  # nada de DCA no caminho até o stop
+    m = market(rising(2 * 288))
+    decision = np.arange(3600, 86400, 3600, dtype=np.int64)
+    first = daytrade.run(m, decision, np.zeros(len(decision), dtype=bool), np.zeros((len(decision), 3)), g, False)[0]
+    assert first.size == pytest.approx(1 / 3 * daytrade.FORCED_SIZE)  # o capital das 3 partes de uma vez
 
 
 def test_daily_equity_marks_the_open_cycle():
