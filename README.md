@@ -196,6 +196,20 @@ na queda). O ganho sobre segurar veio da primeira metade (até 06/2022: 86% cont
 retorno empata (30% contra 31%) e o ganho é cair menos (29% contra 53%). Os ciclos perdem quase tudo com 0,2% por
 lado (4% ao ano). P(bate segurar) vem de um bootstrap estacionário pareado de 1.000 reamostras.
 
+### Refinamentos e prova única
+
+`python -m wescalp.refine --file ...` testa três refinamentos da combinação com a regra de decisão fixada antes
+(Sharpe maior, queda igual ou menor, sem piorar a pior hora de virada do dia nem a segunda metade, p ≤ 0,05 no
+teste da sorte): reduzir a exposição pela volatilidade de 30 dias, a média das 13 regras de 50 a 170 dias e a
+mistura com o momento de 30 dias e o cruzamento 20/50. Nenhum cumpriu todos os critérios (23/10): a volatilidade
+subiu o Sharpe (1,27 contra 1,25) mas caiu de 54% para 44% ao ano na pior hora; as outras empataram. A
+combinação 50/100/150 ficou congelada como está.
+
+Prova única nas 16 semanas intocadas (KuCoin BTC-USDT spot, 04/07 a 21/10/2026, 110 dias, rodada uma vez em
+23/10): a combinação fez +22,2% contra +34,2% de segurar o BTC, as duas com queda máxima de 6,9%. Entrou aos
+poucos depois do fundo de julho (33% em vaivém até agosto) e está 100% comprada desde 19/08. Lucro, mas atrás de
+segurar numa alta, o mesmo padrão da segunda metade do estudo.
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede
