@@ -16,6 +16,8 @@ dependencies = [
 dev = ["pytest>=8"]
 # Pesquisa com modelo (wescalp.ml); roda na máquina de desenvolvimento, não entra na imagem da VPS.
 ml = ["numpy>=1.26", "lightgbm>=4"]
+# Modelo bayesiano (wescalp.bayes), também só na pesquisa.
+bayes = ["numpy>=1.26", "scipy>=1.11", "jax>=0.4.30", "numpyro>=0.15"]
 
 [build-system]
 requires = ["setuptools>=68"]

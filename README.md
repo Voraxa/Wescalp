@@ -225,6 +225,56 @@ alta de 2020-2021, lentas na queda de 2022), mas não rende mais: as médias and
 elas vale pouco. Pela regra fixada, a congelada segue campeã; o aprendiz entra na carteira simulada ao vivo como
 experimento, ao lado dela.
 
+### Modelo bayesiano com knots e fatores
+
+`python -m wescalp.factors` baixa os fatores de fora do preço: Medo e Ganância (alternative.me), Nasdaq e dólar
+(FRED). Depois, `python -m wescalp.bayes --file ...` (precisa de `pip install -e '.[bayes]'`) roda um modelo no estilo
+do Meridian. O desenho foi fixado antes de rodar:
+
+- **Decisão:** semanal, toda segunda 00h UTC. O alvo é o retorno do BTC na semana seguinte.
+- **Linha de base:** um knot a cada ~26 semanas, com passeio aleatório entre eles. Daí para a frente vale o último.
+- **Fatores:** 7, cada um com peso β e incerteza:
+  - a posição da combinação 50/100/150;
+  - o Medo e Ganância (nível e variação de 7 dias);
+  - Nasdaq, dólar e BTC em 4 semanas;
+  - a volatilidade de 30 dias do BTC.
+- **Sem olhar o futuro:** cada fator só usa o que já era público na hora da decisão. O dólar do Fed sai às segundas,
+  com a semana anterior inteira, e por isso entra com uma semana a mais de atraso.
+- **Estimação:** erro Student-t, NUTS com 4 cadeias (sementes 0 a 3) e uma segunda rodada com as sementes 4 a 7.
+- **Divisão:** 87% das semanas para treino (fev/2018 a mai/2025) e 13% para teste (mai/2025 a jun/2026), e depois
+  um walk-forward anual de 2020 a 2026.
+- **Carteira:** (a) 100% comprado se a chance de alta passa de 50%; (b) comprado na fração dessa chance.
+
+Primeira rodada (23/10):
+
+| Carteira | Teste de 13% (57 semanas): total / queda / Sharpe | Walk-forward 2020-2026 (338 semanas): ao ano / queda / Sharpe | p da sorte (walk-forward) |
+| --- | --- | --- | --- |
+| bayes (a), chance > 50% | -35% / 43% / -0,77 | 17,0% / 79% / 0,57 | 0,845 |
+| bayes (b), fração da chance | -26% / 31% / -1,10 | 24,0% / 53% / 0,80 | 0,717 |
+| congelada 50/100/150 | -14% / 23% / -0,64 | 50,8% / 44% / 1,22 | — |
+| aprendiz | -16% / 25% / -0,74 | 48,6% / 41% / 1,17 | — |
+| segurar BTC | -45% / 52% / -1,11 | 38,1% / 77% / 0,84 | — |
+
+Nenhum fator tem peso que se distinga de zero: todas as faixas de 90% passam pelo zero. A média 50/100/150, por
+exemplo, ficou em +0,42% por semana por desvio, com faixa de -0,57% a +1,39%. Os sinais se repetem nos 7 ajustes do
+walk-forward, mas os pesos são pequenos demais para mudar a decisão:
+
+- sempre positivos: a média e a variação de 7 dias do Medo e Ganância;
+- sempre negativos: o dólar e o BTC de 4 semanas.
+
+A chance de alta prevista ficou entre 49% e 61%. O acerto da direção foi de 50,6% no walk-forward, abaixo de
+apostar sempre na alta (52,4% das semanas subiram), e a nota de Brier ficou pior que a de prever sempre a frequência
+do treino. A linha de base leva a tendência do passado para a frente. Depois da alta de 2021, o modelo ficou
+comprado na queda de 2022: -65%, contra -28% da congelada.
+
+As duas rodadas de sementes deram a mesma decisão em 99% a 100% das semanas. O R-hat ficou em no máximo 1,006, com 16
+divergências em 64 mil passos. Pela regra fixada, o modelo não entra na carteira ao vivo: as duas formas falham em
+todos os critérios (Sharpe e queda contra a congelada, teste da sorte e teste de 13%).
+
+A lição é que a média móvel não acerta a direção da semana. Ela ganha porque sai das quedas grandes: acerta só 22% a
+26% das operações, mas os ganhos são muito maiores que as perdas. Um modelo que prevê o retorno médio da semana não
+pega essa assimetria.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
