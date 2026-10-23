@@ -373,6 +373,51 @@ Por ano, a congelada contra segurar:
 Pela regra fixada, a congelada não ganha nesta época a prova de que não é sorte. No painel ela segue como estava. O
 trecho trancado já foi usado: ideias novas passam a ser julgadas pelo walk-forward e pelo período ao vivo.
 
+## Day trade: informação nova
+
+O norte do projeto é o day trade: várias compras e vendas por dia, com heurísticas, confluências e modelos rodando
+juntos, e DCA para corrigir a entrada. Os juízes anteriores só olhavam candles. `python -m wescalp.flowdata` baixa do
+data.binance.vision o que eles não viam:
+
+- o fluxo agressor de 5 min do spot (desde 08/2017) e do perpétuo (desde 01/2020);
+- o prêmio do perpétuo sobre o índice e o funding (desde 01/2020);
+- as posições abertas e a relação compradas/vendidas das contas e dos grandes traders (desde 12/2021).
+
+Não há liquidações históricas grátis: a série "liquidação de comprados" usa a queda de preço junto com a queda das
+posições.
+
+`python -m wescalp.intraday --file ...` testa se algum desses sinais prevê o BTC spot nas 1, 4 e 12 h seguintes mais
+do que a ida e volta de 0,2%. O desenho foi registrado antes da rodada (`ee2b6c4`):
+
+- **Sinais:** 14 sinais isolados e duas confluências de todos eles com a hora do dia (ridge e LightGBM).
+- **Decisão:** de hora em hora, de 2020 a 06/2026.
+- **Treino:** o lado (decil de cima ou de baixo) e o corte saem do treino (até 2022, ou até 2023 para os sinais de
+  posições).
+- **Régua:** passa quem render, fora da amostra, mais que 0,2% por operação com t ≥ 3.
+
+Primeira rodada (23/10): **nenhum passa**. Melhores decis fora da amostra:
+
+| Sinal | Horizonte | Lado | Retorno médio fora da amostra | Base | t |
+| --- | --- | --- | --- | --- | --- |
+| retorno da última hora | 1 h | queda forte | 0,058% | 0,005% | 2,7 |
+| variação do prêmio em 1 h | 4 h | queda forte | 0,350% (140 casos) | 0,022% | 2,5 |
+| prêmio do perpétuo | 4 h | mais negativo | 0,151% | 0,022% | 2,8 |
+| retorno de 24 h | 4 h | queda forte | 0,201% | 0,021% | 2,4 |
+| fluxo do perpétuo em 24 h | 12 h | compra forte | 0,339% | 0,064% | 2,6 |
+| confluência ridge | 12 h | previsão alta | 0,179% | 0,034% | 2,4 |
+
+O LightGBM decorou o treino (1,74% dentro, 0,04% fora em 12 h).
+
+O padrão que se repete, escolhido no treino e confirmado na direção fora dele, é o de **comprar depois de queda
+forte**: retorno negativo, prêmio caindo ou negativo, funding baixo, contas mais vendidas. Ele rende mais que a
+média, mas pouco por operação:
+
+- em 1 h, de 0,05% a 0,07%, um terço da taxa do spot;
+- em 4 e 12 h, de 0,15% a 0,35%, perto dos 0,2% da ida e volta e sem t ≥ 3.
+
+Com a taxa do spot (0,1% por lado), esse efeito não paga várias operações por dia. Com ordem limitada nos futuros
+(0,02% por lado, ida e volta de 0,04%), pagaria com folga, se for real.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
