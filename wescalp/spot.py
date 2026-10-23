@@ -27,7 +27,7 @@ import argparse
 import asyncio
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -119,17 +119,22 @@ class Policy:
     max_dd_bps: float  # maior queda do patrimônio marcado a mercado (realizado + posição aberta)
     bars_in_market: int
     buys: int
+    equity: list[float] = field(default_factory=list)  # patrimônio reinvestido (começa em 1) nos candles de `record`
 
 
 def simulate(f: brain.Frame, lo: int, hi: int, end: int, signal, tp: float, good=lambda i: None,
-             fee: float = FEE, horizon: int = MAX_DAYS * BARS_PER_DAY) -> Policy:
+             fee: float = FEE, horizon: int = MAX_DAYS * BARS_PER_DAY, record: np.ndarray | None = None) -> Policy:
     """Um ciclo por vez. Decide nos fechamentos dos candles [lo, hi), executa na abertura seguinte e deixa as
-    saídas correrem até o candle end-1, onde o que estiver aberto é fechado a mercado ("aberto")."""
+    saídas correrem até o candle end-1, onde o que estiver aberto é fechado a mercado ("aberto").
+
+    `record`: máscara dos candles em cujo fechamento anotar o patrimônio com reinvestimento (cada ciclo usa o
+    patrimônio do início dele), marcado a mercado com a taxa de venda."""
     trades: list[Trade] = []
     parts: list[float] = []
     pending, entry_k, signal_i, stop = False, 0, 0, 0.0
     realized = peak = max_dd = 0.0
     in_market = buys = 0
+    wealth, marks = 1.0, []
     for k in range(lo, end):
         o, h, l, c = f.open[k], f.high[k], f.low[k], f.close[k]
         if pending:
@@ -153,6 +158,7 @@ def simulate(f: brain.Frame, lo: int, hi: int, end: int, signal, tp: float, good
             if out:
                 r = part_return(parts, px, fee)
                 realized += r
+                wealth *= 1 + r / 1e4
                 trades.append(Trade(signal_i, k, out, len(parts), r, good(signal_i)))
                 parts = []
         if k < hi and k + 1 < end:
@@ -161,10 +167,13 @@ def simulate(f: brain.Frame, lo: int, hi: int, end: int, signal, tp: float, good
                     pending, signal_i = True, k
             elif len(parts) < MAX_PARTS and c <= parts[-1] * (1 - tp) and signal(k):
                 pending = True
-        equity = realized + (part_return(parts, c, fee) if parts else 0.0)
+        open_r = part_return(parts, c, fee) if parts else 0.0
+        equity = realized + open_r
         peak = max(peak, equity)
         max_dd = max(max_dd, peak - equity)
-    return Policy(trades, max_dd, in_market, buys)
+        if record is not None and record[k]:
+            marks.append(wealth * (1 + open_r / 1e4))
+    return Policy(trades, max_dd, in_market, buys, marks)
 
 
 def fit_lgbm(x: np.ndarray, y: np.ndarray):

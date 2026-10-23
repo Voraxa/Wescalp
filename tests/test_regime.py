@@ -71,3 +71,11 @@ def test_bar_mask_uses_the_day_position():
     held = np.array([1.0, 0.0])  # dias 11 e 12 (lo = 1)
     ts = np.array([10 * 86400 + 5, 11 * 86400, 11 * 86400 + 86399, 12 * 86400 + 300], dtype=np.int64)
     assert list(regime.bar_mask(ts, day, held, lo=1)) == [False, True, True, False]
+
+
+def test_daily_bars_with_noon_boundary():
+    ts = np.array([0, 11 * 3600, 12 * 3600, 23 * 3600, 36 * 3600], dtype=np.int64)
+    c = np.array([1.0, 2, 3, 4, 5])
+    d = regime.daily_bars(ts, c, c, c, c, offset=12 * 3600)
+    assert list(d.close) == [2, 4, 5]  # dias que viram ao meio-dia UTC
+    assert list(regime.bar_mask(ts, d.day, np.array([1.0, 0.0]), lo=1, offset=12 * 3600)) == [False, False, True, True, False]

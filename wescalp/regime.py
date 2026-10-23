@@ -29,19 +29,22 @@ TEST_START = "2018-10-11"  # o mesmo começo do teste de wescalp.spot na Binance
 
 @dataclass
 class Daily:
-    day: np.ndarray  # dias desde a época (UTC)
+    day: np.ndarray  # dias desde a época, contados a partir de `offset` segundos depois da meia-noite UTC
     open: np.ndarray
     high: np.ndarray
     low: np.ndarray
     close: np.ndarray
+    offset: int = 0
 
 
-def daily_bars(ts: np.ndarray, o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray) -> Daily:
-    """Barras diárias (UTC) a partir dos candles de 5 min em ordem de tempo."""
-    day = ts // 86400
+def daily_bars(ts: np.ndarray, o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray,
+               offset: int = 0) -> Daily:
+    """Barras diárias a partir dos candles de 5 min em ordem de tempo. O dia vira `offset` segundos depois da
+    meia-noite UTC (0 = 00h UTC; 12 * 3600 = 12h UTC)."""
+    day = (ts - offset) // 86400
     keys, first = np.unique(day, return_index=True)
     last = np.concatenate([first[1:], [len(ts)]]) - 1
-    return Daily(keys, o[first], np.maximum.reduceat(h, first), np.minimum.reduceat(l, first), c[last])
+    return Daily(keys, o[first], np.maximum.reduceat(h, first), np.minimum.reduceat(l, first), c[last], offset)
 
 
 def sma(x: np.ndarray, n: int) -> np.ndarray:
@@ -140,9 +143,9 @@ def luck_test(held: np.ndarray, rets: np.ndarray, n: int = 2000, seed: int = 0, 
             "p_dd": float((sims[:, 2] <= dd).mean()), "median_total": float(np.median(sims[:, 0]) - 1)}
 
 
-def bar_mask(ts: np.ndarray, day: np.ndarray, held: np.ndarray, lo: int) -> np.ndarray:
+def bar_mask(ts: np.ndarray, day: np.ndarray, held: np.ndarray, lo: int, offset: int = 0) -> np.ndarray:
     """Para cada candle de 5 min, se a regra estava comprada naquele dia (held cobre os dias lo..fim)."""
-    idx = np.searchsorted(day, ts // 86400) - lo
+    idx = np.searchsorted(day, (ts - offset) // 86400) - lo
     out = np.zeros(len(ts), dtype=bool)
     ok = (idx >= 0) & (idx < len(held))
     out[ok] = held[idx[ok]] > 0

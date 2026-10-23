@@ -175,6 +175,27 @@ não está provado (P(excesso > 0) de 0,58 a 0,71). Os ciclos dentro da regra vi
 composto (15,5% ao ano, queda máxima de 41%, 0,27 ciclo por dia), contra +2.474% de só seguir a regra. Ciclos com
 alvo de 1% (2 por dia) perdem mesmo dentro da tendência.
 
+### Estudo das aprovadas
+
+`python -m wescalp.study --file data/candles/BINANCE-BTCUSDT-5m.csv.gz` compara as regras que passaram no teste da
+sorte e a combinação 50/100/150 (1/3 do capital em cada média), tudo reinvestido, de 11/10/2018 a 30/06/2026:
+
+| Estratégia | Ao ano | Queda máx. | Sharpe | Fator de lucro (meses) | Pior mês | Anos + | Ao ano com 0,5%/lado | P(bate segurar) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| segurar BTC | 32,6% | 77% | 0,77 | 1,75 | -37% | 5/9 | 33% | — |
+| média 50 | 57,9% | 58% | 1,28 | 2,76 | -20% | 6/9 | 46% | 88% |
+| média 100 | 52,3% | 38% | 1,18 | 2,77 | -18% | 6/9 | 45% | 80% |
+| média 150 | 50,7% | 45% | 1,15 | 2,83 | -20% | 5/9 | 46% | 78% |
+| combinação 50/100/150 | 54,9% | 44% | 1,25 | 2,89 | -15% | 6/9 | 47% | 85% |
+| média 100 + ciclos de 3% | 15,5% | 41% | 0,68 | 1,77 | -15% | 5/9 | -26% | 20% |
+
+As médias de 60 a 170 dias formam um platô (44% a 64% ao ano, Sharpe 1,05 a 1,34), sem pico isolado; mudar a hora
+em que o dia vira (00, 06, 12, 18 h UTC) mexe pouco no retorno, mas a queda de 38% da média de 100 só aparece às
+00 h (50% a 52% nas outras horas). A combinação passa no teste da sorte (p 0,000 no total, 0,002 no Sharpe, 0,037
+na queda). O ganho sobre segurar veio da primeira metade (até 06/2022: 86% contra 34% ao ano); na segunda, o
+retorno empata (30% contra 31%) e o ganho é cair menos (29% contra 53%). Os ciclos perdem quase tudo com 0,2% por
+lado (4% ao ano). P(bate segurar) vem de um bootstrap estacionário pareado de 1.000 reamostras.
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede

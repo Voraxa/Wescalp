@@ -167,3 +167,19 @@ def test_yearly_and_hold_by_calendar_year():
     assert hold[2025] == pytest.approx(2.0) and hold[2026] == pytest.approx(3.0)
     pol = spot.Policy([spot.Trade(0, 1, "tp", 1, 150.0, None), spot.Trade(1, 3, "sl", 1, -50.0, None)], 0, 0, 2)
     assert spot.yearly(pol, f) == {2025: pytest.approx(1.5), 2026: pytest.approx(-0.5)}
+
+
+def test_recorded_equity_compounds_closed_cycles_and_marks_open_one():
+    n = 12
+    highs = flat(n, 100.5)
+    highs[3] = 102.1
+    closes = flat(n)
+    closes[10], closes[11] = 99.0, 98.0
+    f = frame(flat(n), highs, flat(n, 97.5), closes)
+    rec = np.zeros(n, dtype=bool)
+    rec[[3, 11]] = True
+    pol = spot.simulate(f, 0, n, n, lambda k: k in (0, 8), 0.02, fee=0.0, record=rec)
+    first = pol.trades[0].ret_bps / 1e4
+    assert pol.equity[0] == pytest.approx(1 + first)  # o 1º ciclo fecha no candle 3 (alvo)
+    # o 2º compra na abertura do 9 (100) e é fechado no fim (98): mesma conta marcada a mercado
+    assert pol.equity[1] == pytest.approx((1 + first) * (1 + spot.part_return([100.0], 98.0, 0.0) / 1e4))
