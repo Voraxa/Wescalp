@@ -5,8 +5,9 @@
 - Medo e Ganância (alternative.me, diário desde 01/02/2018): 0 = medo extremo, 100 = ganância extrema. O valor com
   carimbo do dia D sai por volta das 00h UTC de D; aqui só vale a partir do dia seguinte (na decisão de segunda
   00h UTC, o de domingo).
-- FRED (Federal Reserve de St. Louis), dias úteis dos EUA. NASDAQCOM (Nasdaq Composite): o fechamento de D sai às
-  ~21h UTC de D e vale a partir de D+1 (na segunda, o da sexta). DTWEXBGS (dólar contra uma cesta ampla de moedas,
+- FRED (Federal Reserve de St. Louis), dias úteis dos EUA. NASDAQCOM (Nasdaq Composite) e VIXCLS (VIX, a
+  volatilidade esperada do S&P 500): o fechamento de D sai às ~21h UTC de D e vale a partir de D+1 (na segunda, o
+  da sexta). DTWEXBGS (dólar contra uma cesta ampla de moedas,
   relatório H.10 do Fed): sai uma vez por semana, na segunda à tarde, com a semana anterior inteira; na decisão de
   segunda 00h UTC, a última semana publicada é a retrasada (valor da sexta de 10 dias antes). Dia sem pregão vem
   vazio no CSV e fica de fora.
@@ -26,7 +27,7 @@ log = logging.getLogger("wescalp.factors")
 
 FNG_URL = "https://api.alternative.me/fng/?limit=0&format=json"
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={}"
-FRED_SERIES = ("NASDAQCOM", "DTWEXBGS")
+FRED_SERIES = ("NASDAQCOM", "DTWEXBGS", "VIXCLS")
 WEEKLY_RELEASE = ("DTWEXBGS",)
 DATA_DIR = Path("data/factors")
 EPOCH = date(1970, 1, 1)
