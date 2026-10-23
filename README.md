@@ -138,6 +138,16 @@ ganhou porque ficou fora do mercado metade do tempo (as variáveis do diário do
 escolher entradas melhores: as entradas dele subiram o alvo antes de cair em 34% das vezes, contra 42% ao acaso.
 Com 32 ciclos e um só regime (queda), a amostra é pequena demais para concluir (DSR 0,21 entre 3 alvos).
 
+Segunda rodada (23/10, histórico da Binance de `python -m wescalp.binance`, 931 mil candles de 08/2017 a
+06/2026, `run --file ... --tps 0.01 0.015 0.02 --holdout 0`; teste contínuo de 11/10/2018 a 30/06/2026, 100
+rodadas, em que segurar o BTC rendeu +825%): todas as regras perdem em todos os alvos. As entradas do juiz sobem
+o alvo antes de cair o alvo em 49% a 51% das vezes, o mesmo que ao acaso (50%): não há boa entrada. O acerto dos
+ciclos fica em 78% a 80% por causa do stop 3 alvos abaixo, e mesmo assim cada ciclo perde 0,05% a 0,10% do capital,
+o que somado passa de todo o capital (juiz com alvo de 2%: -116%; com 1%: -263%). Nem nos anos de alta salva:
+em 2020 (+302% do BTC) o melhor juiz fez +63%. O juiz ≥ 2/dia nunca achou corte com 85% de acerto e 2 ciclos/dia
+na calibração. O modelo aprende o treino (AUC 0,82 a 0,92) e fora dele oscila de 0,30 a 0,74 conforme o regime,
+média perto de 0,5 (DSR 0,000 entre 6 juízes).
+
 ## Painel
 
 `wescalp.avadata.com.br`, atrás do Caddy compartilhado da VPS com `basic_auth`. O serviço `web` entra na rede
