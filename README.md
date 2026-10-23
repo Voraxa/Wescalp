@@ -562,6 +562,37 @@ A regra "comprar quando o candle fecha abaixo da abertura do anterior (ou de doi
 dos candles. Depois dela, o preço sobe em média de 0,003% (5 min) a 0,03% (1 h e 4 h) nos candles seguintes: de 7 a 70
 vezes menos que a taxa.
 
+### O vale no candle diário com alvo
+
+`python -m wescalp.dailydip --file ...` testa a mesma regra no candle diário. O desenho foi registrado antes da rodada
+(`bbaecf3`):
+
+- **Compra:** no fechamento do dia que fecha abaixo da abertura do anterior (ou de dois antes), com o capital inteiro.
+- **Venda:** no alvo de 2%, 3% ou 5% sobre a compra, conferido nos candles de 5 min.
+- **Stop:** duas versões, sem stop e com stop 3 alvos abaixo da compra.
+
+Período de 10/2018 a 06/2026, com 0,1% por lado. Resultados com o dia anterior; com dois dias antes, ficam parecidos:
+
+| Saída | Alvo | Operações/ano | Acerto | Ao ano | Queda máx. | Sharpe | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| só alvo | 2% | 10,9 | 99% | 9,9% | 75% | 0,46 | 0,972 |
+| só alvo | 3% | 7,9 | 98% | 12,7% | 76% | 0,50 | 0,957 |
+| só alvo | 5% | 5,6 | 98% | 17,4% | 76% | 0,57 | 0,924 |
+| alvo e stop | 2% | 88,5 | 74% | -25,5% | 90% | -0,68 | 0,860 |
+| alvo e stop | 3% | 57,1 | 74% | -24,4% | 89% | -0,46 | 0,920 |
+| alvo e stop | 5% | 31,9 | 77% | -6,3% | 80% | 0,13 | 0,882 |
+| segurar BTC | — | — | — | 32,6% | 77% | 0,77 | — |
+| congelada 50/100/150 | — | — | — | 54,9% | 44% | 1,25 | — |
+
+Nenhuma variante passa.
+
+- **Só com alvo:** quase toda operação fecha no lucro (98% a 99%), mas rende de um terço a pouco mais da metade de
+  segurar. Ela vende cedo nas altas e espera um novo vale, e nas quedas fica presa. A operação mais longa comprou em
+  10/11/2021 a 64.882 (perto do topo) e só bateu os +5% em 04/03/2024, 845 dias depois. A queda máxima é a mesma de
+  segurar.
+- **Com stop:** as perdas no stop comem os ganhos, de -6% a -37% ao ano.
+- **Dias de sinal:** não são melhores que dias ao acaso (p de 0,86 a 1,0).
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
