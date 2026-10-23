@@ -542,6 +542,22 @@ Nenhuma passa na regra fixada: todas perdem com a taxa do spot. Mesmo assim, é 
   paga a taxa.
 - **Momento intradiário:** não se repetiu.
 
+Prova única da regra fora do pregão americano nas 16 semanas guardadas (`sessions --holdout`), rodada uma vez em 23/10:
+
+- **Desenho:** fixado antes no commit `4e287e3`.
+- **Dados:** BTC-USDT spot da KuCoin, de 04/07 a 21/10/2026, 76 operações.
+
+| Taxa por lado | Total | Queda máx. |
+| --- | --- | --- |
+| 0,1% (spot) | -4,8% | 10,4% |
+| 0,02% | +7,5% | 7,9% |
+| 0% | +10,8% | 7,3% |
+| segurar BTC | +34,4% | 6,9% |
+
+O efeito não se repetiu. Mesmo sem taxa, a regra rendeu um terço do que rendeu segurar, e o teste da sorte deu p de
+0,898. Neste trecho, a maior parte da alta (cerca de +21%) veio com a bolsa americana aberta, o contrário do efeito
+publicado. Com a taxa do spot, a regra perdeu dinheiro.
+
 ### Por que procurar um vale menor não resolve
 
 A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
