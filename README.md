@@ -418,6 +418,50 @@ média, mas pouco por operação:
 Com a taxa do spot (0,1% por lado), esse efeito não paga várias operações por dia. Com ordem limitada nos futuros
 (0,02% por lado, ida e volta de 0,04%), pagaria com folga, se for real.
 
+### O sistema de day trade em camadas
+
+`python -m wescalp.daytrade --file ...` monta o sistema pedido. O desenho foi registrado antes da rodada (`36e1993`):
+
+- **Dia:** a tendência diária (a congelada) dimensiona as partes: cheias na alta, um terço na baixa. O sistema nunca
+  deixa de operar.
+- **Confluência:** um ridge prevê as 4 h seguintes com os 14 sinais de fluxo, prêmio e posições, três heurísticas de
+  candle (RSI, Bollinger, VWAP) e a hora do dia. Walk-forward anual, testado de 2021 a 06/2026.
+- **Entrada:** a cada hora, se a previsão estiver no quinto de cima. Entradas forçadas, com metade do tamanho,
+  garantem 2 ciclos por dia.
+- **Ciclo:** até 2 DCAs com ordem limitada, alvo sobre o preço médio, stop da posição e 12 h no máximo.
+- **Variantes:** passo e alvo de 0,6% ou de 1,0%, cada um com e sem um juiz que aprende com o resultado dos próprios
+  ciclos.
+
+Primeira rodada (23/10, de 2021 a 06/2026, 2.007 dias, 0,1% por lado):
+
+| Variante | Total | Ao ano | Queda máx. | Ciclos/dia | Dias com 2+ | Acerto | Líquido sobre o capital usado | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| passo 0,6% | -98% | -49,0% | 98% | 3,49 | 94% | 76% | -0,170% por ciclo | 0,998 |
+| passo 0,6% com juiz | -76% | -23,2% | 77% | 1,95 | 88% | 75% | -0,167% | 0,252 |
+| passo 1,0% | -91% | -35,6% | 92% | 2,51 | 83% | 66% | -0,165% | 0,945 |
+| passo 1,0% com juiz | -69% | -19,3% | 70% | 1,77 | 71% | 66% | -0,154% | 0,150 |
+| segurar BTC | +102% | 13,7% | 77% | — | — | — | — | — |
+| congelada 50/100/150 | +347% | 31,3% | 44% | — | — | — | — | — |
+
+Retorno ao ano com as mesmas entradas e taxas menores:
+
+| Variante | 0,10% | 0,08% | 0,04% | 0,02% | 0% |
+| --- | --- | --- | --- | --- | --- |
+| passo 0,6% | -49,0% | -40,3% | -18,3% | -4,4% | +11,9% |
+| passo 0,6% com juiz | -23,2% | -18,2% | -7,2% | -1,2% | +5,2% |
+| passo 1,0% | -35,6% | -28,5% | -12,0% | -2,3% | +8,4% |
+| passo 1,0% com juiz | -19,3% | -14,8% | -5,0% | +0,4% | +6,0% |
+
+- **Ele opera como pedido:** de 1,8 a 3,5 ciclos por dia, 2 ou mais em 71% a 94% dos dias, e 66% a 76% dos ciclos no
+  lucro.
+- **Mas cada ciclo perde cerca de 0,17% do capital usado.** O ganho bruto é de uns 0,03% por ciclo; a taxa, 0,2%.
+- **Mesmo com taxa zero, rende de 5% a 12% ao ano,** menos que segurar o BTC (13,7%) e que a congelada (31,3%).
+- **O momento das entradas não é melhor que horas ao acaso:** p de 0,15 a 1,0.
+- **O juiz aprendeu a barrar quase todas as entradas por sinal:** de 87% a 91% dos ciclos viraram forçados, com metade
+  do tamanho. As variantes com juiz perdem menos porque operam menos, não porque escolhem melhor.
+
+Pela regra fixada, nenhuma variante passa; nada vai para as 16 semanas intocadas nem para o painel.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do

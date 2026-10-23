@@ -251,7 +251,10 @@ def stats(m: Market, cycles: list[Cycle], days: np.ndarray, fee: float) -> dict:
         "sharpe": float(r.mean() / r.std() * math.sqrt(365)) if r.std() > 0 else 0.0,
         "cycles": len(cycles), "per_day": len(cycles) / len(days), "days_2": float((per_day >= 2).mean()),
         "hit": float((pnl > 0).mean()) if len(pnl) else math.nan,
-        "net_per_cycle": float((pnl / np.maximum(deployed, 1e-12)).mean()) if len(pnl) else math.nan,
+        # Soma dos resultados sobre a soma do capital usado: a média simples por ciclo deixaria os muitos ganhos
+        # pequenos pesarem tanto quanto os poucos prejuízos grandes (os ciclos com DCA usam até 3 partes).
+        "net_per_cycle": float(pnl.sum() / deployed.sum()) if len(pnl) else math.nan,
+        "mean_pnl": float(pnl.mean()) if len(pnl) else math.nan,
         "outcomes": {k: sum(1 for c in cycles if c.outcome == k) for k in ("alvo", "stop", "tempo")},
         "parts": float(np.mean([len(c.fills) for c in cycles])) if cycles else math.nan,
         "forced": float(np.mean([c.forced for c in cycles])) if cycles else math.nan,
@@ -341,11 +344,12 @@ def main() -> None:
 
     print(f"\ncom {FEE:.1%} por lado:")
     print(f"{'variante':<24}{'total':>9}{'ao ano':>9}{'queda':>7}{'Sharpe':>8}{'ciclos/dia':>12}{'dias ≥2':>9}"
-          f"{'acerto':>8}{'líquido/ciclo':>15}{'forçadas':>10}{'p sorte':>9}")
+          f"{'acerto':>8}{'sobre o usado':>15}{'por ciclo':>11}{'forçadas':>10}{'p sorte':>9}")
     for name, s in results.items():
         x0 = s[FEE]
         print(f"{name:<24}{x0['total']:>9.0%}{x0['cagr']:>9.1%}{x0['dd']:>7.0%}{x0['sharpe']:>8.2f}{x0['per_day']:>12.2f}"
-              f"{x0['days_2']:>9.0%}{x0['hit']:>8.0%}{x0['net_per_cycle']:>15.3%}{x0['forced']:>10.0%}{x0['p']:>9.3f}")
+              f"{x0['days_2']:>9.0%}{x0['hit']:>8.0%}{x0['net_per_cycle']:>15.3%}{x0['mean_pnl']:>11.3%}"
+              f"{x0['forced']:>10.0%}{x0['p']:>9.3f}")
     for name, b in bench.items():
         print(f"{name:<24}{b['total']:>9.0%}{b['cagr']:>9.1%}{b['dd']:>7.0%}{b['sharpe']:>8.2f}")
     print("\nsaídas (alvo / stop / tempo) e partes compradas por ciclo, com 0,1% por lado:")
