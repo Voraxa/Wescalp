@@ -275,6 +275,29 @@ A lição é que a média móvel não acerta a direção da semana. Ela ganha po
 26% das operações, mas os ganhos são muito maiores que as perdas. Um modelo que prevê o retorno médio da semana não
 pega essa assimetria.
 
+### Trecho trancado: BTC de 2011 a 2017 (Bitstamp)
+
+`python -m wescalp.bitstamp` grava em `data/locked/` os candles de 1 h do BTC/USD da Bitstamp de 18/08/2011 a
+16/08/2017. São os seis anos antes do primeiro dado da Binance, que nenhuma regra viu. Esse trecho é a reserva para
+uma prova única:
+
+- **Quem roda:** a congelada, o aprendiz e quem passar nos próximos testes.
+- **Quando:** uma vez só, no fim.
+- **Período avaliado:** de 01/01/2013 a 16/08/2017. O que vem antes só aquece as médias.
+- **Trava:** até lá, `brain.load_candles` se recusa a abrir a pasta sem `WESCALP_UNLOCK=prova-unica`.
+
+Conferência dos dados, sem nenhuma estratégia (23/10):
+
+- 52.572 horas, sem buraco.
+- Horas sem negócio: 90% em 2011, 37% em 2012 e no máximo 1,4% por ano de 2013 em diante. Os 1,2% de 2015 são a
+  parada da Bitstamp em janeiro.
+- Saltos absurdos de uma hora (de -82% a +242%) só em 2011, fora do período avaliado.
+- Nos 41 dias em que Bitstamp e Binance se sobrepõem (ago–set/2017), a diferença mediana do fechamento foi 0,00% e a
+  correlação dos retornos diários, 0,97.
+
+SHA-256 do conteúdo: `5fb3f3543026448e83de75f0ec0b201429687dcccf6fdd33da65a60fe5e8d78e`. Um segundo download deu o
+mesmo hash; a prova única confere esse valor antes de rodar.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do

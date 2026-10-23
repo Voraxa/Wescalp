@@ -27,6 +27,7 @@ import csv
 import gzip
 import logging
 import math
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -66,6 +67,9 @@ def save_candles(path: Path, candles: list[Candle]) -> None:
 
 
 def load_candles(path: Path, symbol: str = FUTURES_SYMBOL, source: str = "futures") -> list[Candle]:
+    # Dados de data/locked/ (wescalp.bitstamp) só abrem na prova única.
+    if "locked" in path.resolve().parts and os.environ.get("WESCALP_UNLOCK") != "prova-unica":
+        raise PermissionError(f"{path} está trancado até a prova única (WESCALP_UNLOCK=prova-unica para abrir)")
     if not path.exists():
         return []
     with gzip.open(path, "rt", newline="") as f:
