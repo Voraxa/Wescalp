@@ -534,7 +534,7 @@ registrado antes da rodada (`e21b71c`).
 
 Nenhuma passa na regra fixada: todas perdem com a taxa do spot. Mesmo assim, é a primeira pista real do day trade:
 
-- **Fora do pregão americano:** antes da taxa, ficar comprado só com a bolsa americana fechada (cerca de 70% do
+- **Fora do pregão americano:** antes da taxa, ficar comprado só com a bolsa americana fechada (cerca de 80% do
   tempo) rendeu mais que segurar o tempo todo: 56,5% contra 30,9% ao ano. O efeito sobreviveu à publicação. Com
   0,02% por lado (ordem limitada nos futuros), renderia 41,6%. Ele empata com segurar com cerca de 0,035% por lado. O
   p de 0,041, porém, não chega ao limite de 0,0167 para três regras.
