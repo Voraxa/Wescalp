@@ -51,6 +51,21 @@ def test_returns_with_fee_and_summary():
     assert s["trades"] == 1 and s["total"] == pytest.approx(math.exp(r[0]) - 1)
 
 
+def test_holdout_answers_both_questions(monkeypatch):
+    start, end = utc(2026, 7, 6), utc(2026, 7, 20)
+    monkeypatch.setattr(sessions, "HOLDOUT", (start, end))
+    ts = np.arange(start - 2 * DAY, end + 2 * DAY, 300, dtype=np.int64)
+    ny_open = np.array([sessions.ny(datetime.fromtimestamp(int(t), timezone.utc).date(), sessions.time(9, 30))
+                        for t in ts])  # instante da abertura de Nova York no dia de cada candle
+    ny_close = ny_open + int(6.5 * H)
+    us_hours = (ts >= ny_open) & (ts < ny_close)
+    close = 100 * np.exp(np.cumsum(np.where(us_hours, -0.0004, 0.0002)))  # cai no pregão, sobe fora dele
+    d = sessions.regime.daily_bars(ts, close, close, close, close)
+    days = [date(2026, 7, k) for k in range(6, 21) if date(2026, 7, k).weekday() < 5]
+    r = sessions.holdout(ts, close, d, days, luck=50)
+    assert r["repeats"] and r["fees"][0.0]["total"] > r["hold"]["total"] and r["p"] < 0.05
+
+
 def test_luck_p_rewards_the_one_hour_that_rises():
     start = utc(2024, 1, 1)
     ts = np.arange(start, start + 60 * DAY, 300, dtype=np.int64)

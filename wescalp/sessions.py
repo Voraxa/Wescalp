@@ -17,6 +17,11 @@ efeito existia antes. Preço: o fechamento do candle de 5 min que termina na hor
 para ver o tamanho bruto. Teste da sorte: 2.000 sorteios com cada operação deslocada para uma hora cheia sorteada do
 mesmo dia, com a mesma duração; p = fração com soma dos log-retornos igual ou maior. Passa se, no teste, com 0,1% por
 lado, tiver lucro, Sharpe maior que o de segurar o BTC e p ≤ 0,0167 (0,05 dividido pelas 3 regras).
+
+`--holdout` (fixado em 23/10/2026, antes de rodar): só a regra fora do pregão americano, sem ajuste, uma vez, nas 16
+semanas guardadas (04/07 a 21/10/2026, candles de 5 min do BTC-USDT spot da KuCoin, `--file data/candles/BTC-USDT-5m.csv.gz`).
+Duas perguntas: o efeito se repete (sem taxa, rende mais que segurar o BTC no mesmo período, com p ≤ 0,05 no teste da
+sorte)? E dá lucro com a taxa do spot (0,1% por lado, resultado acima de zero e acima de segurar)?
 """
 
 import argparse
@@ -33,6 +38,7 @@ H, DAY = 3600, 86400
 NEW_YORK = ZoneInfo("America/New_York")
 RULES = ("fora do pregão americano", "21h às 23h UTC", "momento intradiário")
 PRE_START, TEST_START, END = intraday.utc("2018-10-11"), intraday.utc("2022-07-01"), intraday.utc("2026-07-01")
+HOLDOUT = (intraday.utc("2026-07-04"), intraday.utc("2026-10-22"))  # as 16 semanas guardadas, fim exclusivo
 FEES = (0.001, 0.0002, 0.0)
 FEE = FEES[0]
 LUCK = 2000
@@ -101,16 +107,41 @@ def hold(d: regime.Daily, start: int, end: int) -> dict:
             "sharpe": float(r.mean() / r.std() * math.sqrt(365))}
 
 
+def holdout(ts, c, d: regime.Daily, trading_days: list[date], luck: int) -> dict:
+    """A regra fora do pregão americano nas 16 semanas guardadas, uma vez, com as duas perguntas do cabeçalho."""
+    start, end = HOLDOUT
+    t = trades([x for x in trading_days if start - 7 * DAY <= ny(x, time(16)) < end], ts, c, start, end)[RULES[0]]
+    s = {f: summary(t, log_returns(ts, c, t, f), start, end) for f in FEES}
+    b = hold(d, start, end)
+    pv = luck_p(ts, c, t, luck) if luck else math.nan
+    fmt = lambda x: datetime.fromtimestamp(x, timezone.utc).strftime("%d/%m/%Y")  # noqa: E731
+    print(f"{RULES[0]} nas 16 semanas guardadas ({fmt(start)} a {fmt(end - DAY)}), {s[FEE]['trades']} operações")
+    for f in FEES:
+        print(f"  com {f:.2%} por lado: total {s[f]['total']:+.1%}, queda máx. {s[f]['dd']:.1%}, Sharpe {s[f]['sharpe']:.2f},"
+              f" acerto {s[f]['hit']:.0%}")
+    print(f"  segurar BTC: total {b['total']:+.1%}, queda máx. {b['dd']:.1%}, Sharpe {b['sharpe']:.2f}")
+    print(f"  teste da sorte: p = {pv:.3f}")
+    repeats = s[0.0]["total"] > b["total"] and pv <= 0.05
+    pays = s[FEE]["total"] > 0 and s[FEE]["total"] > b["total"]
+    print(f"\no efeito se repete (sem taxa acima de segurar e p ≤ 0,05)? {'SIM' if repeats else 'não'}")
+    print(f"dá lucro com a taxa do spot (acima de zero e de segurar)? {'SIM' if pays else 'não'}")
+    return {"fees": s, "hold": b, "p": pv, "repeats": repeats, "pays": pays}
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--file", type=Path, required=True)
     p.add_argument("--factors", type=Path, default=factors.DATA_DIR)
     p.add_argument("--luck", type=int, default=LUCK)
+    p.add_argument("--holdout", action="store_true", help="a prova única nas 16 semanas guardadas (ver o cabeçalho)")
     args = p.parse_args()
     ts, o, h, l, c = study.load(args.file)
     nd, _ = factors.load("NASDAQCOM", args.factors)
-    trading_days = [factors.EPOCH + timedelta(days=int(x)) for x in nd if PRE_START - 7 * DAY <= x * DAY < END]
     d = regime.daily_bars(ts, o, h, l, c)
+    if args.holdout:
+        holdout(ts, c, d, [factors.EPOCH + timedelta(days=int(x)) for x in nd], args.luck)
+        return
+    trading_days = [factors.EPOCH + timedelta(days=int(x)) for x in nd if PRE_START - 7 * DAY <= x * DAY < END]
     for label, start, end in (("antes da publicação (só para ver se existia)", PRE_START, TEST_START),
                               ("TESTE, depois da publicação", TEST_START, END)):
         fmt = lambda x: datetime.fromtimestamp(x, timezone.utc).strftime("%d/%m/%Y")  # noqa: E731
