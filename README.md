@@ -298,6 +298,42 @@ Conferência dos dados, sem nenhuma estratégia (23/10):
 SHA-256 do conteúdo: `5fb3f3543026448e83de75f0ec0b201429687dcccf6fdd33da65a60fe5e8d78e`. Um segundo download deu o
 mesmo hash; a prova única confere esse valor antes de rodar.
 
+### Modelo de risco por cima da congelada
+
+`python -m wescalp.risk --file ...` testa três candidatos que só mexem no tamanho da posição da congelada, entre 0% e
+100%. Antes, `python -m wescalp.events` monta o calendário (reuniões marcadas do FOMC, das páginas do Fed, e
+divulgações do CPI, das safras do índice no ALFRED) e `python -m wescalp.factors` baixa o VIX. O desenho foi
+registrado num commit antes da primeira rodada (`decc6c2`):
+
+- **volatilidade prevista:** a posição cresce quando o mercado está mais calmo que a mediana de um ano e encolhe
+  quando está mais agitado (EWMA, λ = 0,94);
+- **cautela em notícia:** metade da posição nos dias de comunicado do FOMC ou de divulgação do CPI;
+- **VIX:** a mesma conta da volatilidade, com o VIX no lugar.
+
+Primeira rodada (23/10, de 11/10/2018 a 30/06/2026):
+
+| Carteira | Ao ano | Queda máx. | Sharpe | Pior hora | 2ª metade | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- |
+| congelada 50/100/150 | 54,9% | 44% | 1,25 | 54% | 30% | — |
+| volatilidade prevista | 46,6% | 48% | 1,22 | 43% | 27% | 0,475 |
+| cautela FOMC/CPI | 48,0% | 41% | 1,17 | 46% | 27% | 0,905 |
+| VIX | 51,1% | 42% | 1,23 | 51% | 27% | 0,406 |
+
+Nenhum passa na régua. Todos rendem menos que a congelada, e o momento de cada um não é melhor que o mesmo ajuste
+deslocado ao acaso no tempo (p de 0,41 a 0,91). A volatilidade prevista ainda caiu mais (48%): na queda de nov/2021
+a jan/2023, ficou um pouco mais comprada que a congelada (16% contra 14% em média), porque aumentava a posição nos
+trechos calmos. Nenhum vai para a prova única.
+
+As notícias mexem com o BTC, mas sem direção:
+
+- **FOMC:** nas 2 h depois do comunicado, o movimento mediano foi de 0,89%, contra 0,56% na mesma hora dos dias
+  úteis vizinhos (1,6 vez).
+- **CPI:** 0,87% contra 0,77% (1,1 vez).
+- **Direção:** o preço subiu em 48% (FOMC) e 49% (CPI) das vezes.
+- **Dia inteiro:** o retorno absoluto médio sobe de 2,15% para cerca de 2,65%.
+
+Reduzir a posição nesses dias custa mais, em taxa e em alta perdida, do que evita em queda.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
