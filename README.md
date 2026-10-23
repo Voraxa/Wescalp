@@ -505,6 +505,43 @@ Retorno ao ano com as mesmas entradas e taxas menores:
 
 Pela regra fixada, nenhuma variante passa; nada vai para as 16 semanas intocadas nem para o painel.
 
+**Sem DCA** (`--sem-dca`, fixado em `e21b71c`): uma compra só por ciclo, com o capital das 3 partes de uma vez. Fica
+pior:
+
+- perde de 31% a 68% ao ano com 0,1% por lado (acerto de 59% a 69%, p de 0,33 a 1,0);
+- com taxa zero, rende de 5% a 17% ao ano.
+
+A perda por real usado é a mesma (cerca de 0,17% por ciclo), mas cada ciclo usa o capital inteiro.
+
+### Efeitos de horário publicados
+
+`python -m wescalp.sessions --file ...` testa três regras de day trade publicadas, usando a data de publicação como
+corte: o teste vai de 07/2022 a 06/2026, depois dos artigos, num trecho que os autores não viram. O desenho foi
+registrado antes da rodada (`e21b71c`).
+
+- **Fora do pregão americano** (Bespoke, citado pela Bloomberg em 06/2022): compra no fechamento de Nova York e vende
+  na abertura seguinte.
+- **21h às 23h UTC** (Quantpedia).
+- **Momento intradiário** (Shen, Urquhart e Wang, *Financial Review*, 2022): se a primeira meia hora do dia subiu,
+  compra às 23h30 UTC e vende à meia-noite.
+
+| Regra (07/2022 a 06/2026) | Operações | Ao ano com 0,1% | Com 0,02% | Com 0% | p da sorte |
+| --- | --- | --- | --- | --- | --- |
+| fora do pregão americano | 1.000 | -5,1% | +41,6% | +56,5% | 0,041 |
+| 21h às 23h UTC | 1.461 | -42,0% | +4,1% | +20,5% | 0,009 |
+| momento intradiário | 728 | -31,6% | -8,5% | -1,6% | 0,943 |
+| segurar BTC | — | +30,9% | — | — | — |
+
+Nenhuma passa na regra fixada: todas perdem com a taxa do spot. Mesmo assim, é a primeira pista real do day trade:
+
+- **Fora do pregão americano:** antes da taxa, ficar comprado só com a bolsa americana fechada (cerca de 70% do
+  tempo) rendeu mais que segurar o tempo todo: 56,5% contra 30,9% ao ano. O efeito sobreviveu à publicação. Com
+  0,02% por lado (ordem limitada nos futuros), renderia 41,6%. Ele empata com segurar com cerca de 0,035% por lado. O
+  p de 0,041, porém, não chega ao limite de 0,0167 para três regras.
+- **21h às 23h UTC:** o horário importa de verdade (p 0,009), mas o ganho bruto, de 20,5% ao ano em 2 h por dia, não
+  paga a taxa.
+- **Momento intradiário:** não se repetiu.
+
 ## Carteiras simuladas ao vivo
 
 O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
