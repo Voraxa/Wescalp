@@ -28,6 +28,7 @@
 
 <nav class="tabs" role="tablist">
   <button role="tab" data-tab="chart" aria-selected="true">Gráfico</button>
+  <button role="tab" data-tab="strategy" aria-selected="false">Estratégia</button>
   <button role="tab" data-tab="research" aria-selected="false">Pesquisa</button>
 </nav>
 
@@ -71,6 +72,40 @@
       (<span class="c-tp">alvo</span>, <span class="c-sl">stop</span>, <span class="c-time">tempo</span>);
       tracejado até a saída. Faixa vermelha: minutos sem livro gravado. Fundo azulado: período intocado da pesquisa.
     </p>
+  </section>
+
+  <section id="tab-strategy" hidden>
+    <div class="research-head">
+      <h2>Carteiras simuladas: regra congelada e aprendiz</h2>
+      <span class="muted small" id="sg-updated"></span>
+    </div>
+    <div class="cards" id="sg-cards"><p class="muted">carregando…</p></div>
+    <div class="notice" id="sg-notice" hidden></div>
+    <div class="toolbar">
+      <span class="seg" role="group" aria-label="Carteira">
+        <button type="button" data-strat="media-50-100-150" aria-pressed="true">Congelada</button>
+        <button type="button" data-strat="aprendiz-50-170" aria-pressed="false">Aprendiz (experimento)</button>
+      </span>
+      <label class="chip"><input type="checkbox" id="sg-show-sma" checked><span class="sw sw-ema9"></span>Médias</label>
+      <label class="chip"><input type="checkbox" id="sg-show-sim" checked><span class="sw sw-mark"></span>Sinais simulados</label>
+      <span class="seg" role="group" aria-label="Período da curva">
+        <button type="button" data-range="live" aria-pressed="true">Ao vivo</button>
+        <button type="button" data-range="all" aria-pressed="false">Todo o histórico</button>
+      </span>
+    </div>
+    <div class="chart-wrap sg-price">
+      <div id="sg-chart" class="fill"></div>
+      <div class="legend" id="sg-legend"></div>
+    </div>
+    <div class="chart-wrap sg-eq">
+      <div id="sg-equity" class="fill"></div>
+      <div class="legend" id="sg-eq-legend"></div>
+    </div>
+    <h3 class="sg-h3" id="sg-w-title" hidden>O que o aprendiz aprendeu: peso de cada média</h3>
+    <div id="sg-weights" hidden></div>
+    <h3 class="sg-h3">Ordens simuladas</h3>
+    <div id="sg-signals"></div>
+    <p class="foot" id="sg-foot"></p>
   </section>
 
   <section id="tab-research" hidden>

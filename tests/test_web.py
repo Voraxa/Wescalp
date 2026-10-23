@@ -5,7 +5,7 @@ import psycopg
 import pytest
 from starlette.testclient import TestClient
 
-from wescalp import health, web
+from wescalp import health, paper, web
 from wescalp.flow import Quote, Tick
 from wescalp.kucoin import Candle
 from wescalp.labels import Barriers
@@ -34,13 +34,14 @@ def wave(n: int, start: datetime = T0) -> list[Candle]:
 class FakeStore:
     """Mesmos métodos do web.Store, em memória."""
 
-    def __init__(self, candles=(), trades=(), quotes=(), ticks=(), metrics=None, reports=None):
+    def __init__(self, candles=(), trades=(), quotes=(), ticks=(), metrics=None, reports=None, paper=None):
         self._candles = list(candles)
         self._trades = list(trades)
         self._quotes = list(quotes)
         self._ticks = list(ticks)
         self._metrics = metrics
         self._reports = reports  # None = tabela não existe
+        self._paper = paper  # None = tabelas da carteira simulada não existem
         self.flow_lock = asyncio.Semaphore(1)
         self.calls: list[tuple] = []
 
@@ -76,6 +77,9 @@ class FakeStore:
 
     async def old_book_minutes(self, start_min, end_min):
         return {}, False
+
+    async def paper(self):
+        return self._paper
 
     async def reports(self):
         if self._reports is None:
@@ -290,3 +294,32 @@ def test_flow_window_is_clipped():
 def test_static_index_is_served():
     r = client(FakeStore()).get("/")
     assert r.status_code == 200 and "Wescalp" in r.text and r.headers["cache-control"] == "no-cache"
+
+
+# --- carteira simulada ---
+
+def test_paper_without_tables_is_empty():
+    body = client(FakeStore()).get("/api/paper").json()
+    assert [x["id"] for x in body["strategies"]] == [paper.FROZEN.id, paper.LEARNER.id]
+    assert all(x["days"] == [] and x["live"] is None for x in body["strategies"])
+
+
+def test_paper_endpoint_has_both_portfolios_and_marks_now():
+    from datetime import date, time as dtime
+
+    d0 = date(2026, 3, 1)
+    bars = [paper.Bar(d0 + timedelta(days=i), 100.0 + i, 101.0 + i, 99.0 + i, 100.0 + i,
+                      datetime.combine(d0 + timedelta(days=i), dtime(23, 55), UTC)) for i in range(200)]
+    live_start = d0 + timedelta(days=190)
+    now = datetime.combine(d0 + timedelta(days=201), dtime(1), UTC)
+    data = {s.id: paper.advance(s, None, bars, live_start, now) for s in paper.STRATEGIES}
+    meta = {s.id: live_start for s in paper.STRATEGIES}
+    last = (datetime.combine(d0 + timedelta(days=200), dtime(10), UTC), 330.0)
+    body = client(FakeStore(paper=(meta, data, last))).get("/api/paper").json()
+    frozen, learner = body["strategies"]
+    assert frozen["name"] == "congelada" and learner["name"] == "aprendiz" and learner["learn"]
+    assert len(frozen["days"]) == 200 and frozen["live_start"] == live_start.isoformat()
+    assert frozen["now"]["price"] == 330.0 and frozen["now"]["position"] == 1.0
+    assert frozen["live"]["days"] == 9
+    assert frozen["history"]["orders"] == 1  # só a M150 liga dentro do histórico completo (dia 149)
+    assert learner["history"]["from"] == paper.day_epoch(d0 + timedelta(days=169))  # quando a média de 170 existe

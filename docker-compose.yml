@@ -71,6 +71,19 @@ services:
     # Pico medido: ~57 MB em uso normal e ~130 MB com 6 h de livro no /api/flow (216 mil linhas; um por vez).
     mem_limit: 320m
 
+  paper:
+    # Carteiras simuladas (wescalp.paper): a regra congelada e o aprendiz, gravados dia a dia quando o dia fecha.
+    # Não envia ordem nem usa chave de API; só lê os candles do spot e grava paper_days e paper_orders.
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "wescalp.paper", "--follow"]
+    environment:
+      DATABASE_URL: postgresql://wescalp:${WESCALP_DB_PASSWORD}@db:5432/wescalp
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 128m
+
   backfill:
     build: .
     profiles: ["tools"]

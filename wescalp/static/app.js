@@ -652,14 +652,17 @@ $('go-now').addEventListener('click', () => chart.timeScale().scrollToRealTime()
 
 // --- abas e pesquisa ---
 let reportsLoaded = false;
+const TAB_HASH = { chart: '', strategy: '#estrategia', research: '#pesquisa' };
 document.querySelectorAll('[data-tab]').forEach((btn) => btn.addEventListener('click', () => {
   const tab = btn.dataset.tab;
   document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
   $('tab-chart').hidden = tab !== 'chart';
+  $('tab-strategy').hidden = tab !== 'strategy';
   $('tab-research').hidden = tab !== 'research';
   if (tab === 'research' && !reportsLoaded) loadReports();
+  if (tab === 'strategy') loadStrategy();
   if (tab === 'chart') resizeFlow();
-  try { history.replaceState(null, '', tab === 'chart' ? location.pathname : '#pesquisa'); } catch { /* ignora */ }
+  try { history.replaceState(null, '', TAB_HASH[tab] || location.pathname); } catch { /* ignora */ }
 }));
 $('reports-reload').addEventListener('click', loadReports);
 
@@ -774,11 +777,294 @@ async function loadReports() {
   }
 }
 
+// --- estratégia: carteiras simuladas de wescalp.paper (nenhuma ordem real; só o registro das regras no tempo) ---
+const FROZEN_ID = 'media-50-100-150';
+const SG = {
+  data: null, last: 0, fitted: false, byDay: new Map(),
+  strat: store.get('sgStrat', FROZEN_ID), range: store.get('sgRange', 'live'),
+  sim: store.get('sgSim', true), sma: store.get('sgSma', true),
+};
+const SG_EVERY_MS = 60000;
+const SMA_COLOR = ['#4fc3f7', '#f0b429', '#c792ea'];
+const STRAT_COLOR = { [FROZEN_ID]: '#3fb950', 'aprendiz-50-170': '#d2a8ff' };
+const STRAT_CLS = { [FROZEN_ID]: 'c-frozen', 'aprendiz-50-170': 'c-learner' };
+const ymd = (t) => new Date(t * 1000).toISOString().slice(0, 10); // dia UTC: o gráfico diário fica em UTC
+const dUTC = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+const fmtUTCDay = (t) => dUTC.format(new Date(t * 1000));
+const pctS = (x, d = 1) => (x === null || x === undefined ? '—' : fmtSigned(x * 100, d) + '%');
+const pctU = (x, d = 1) => (x === null || x === undefined ? '—' : fmt(x * 100, d) + '%');
+const sign = (x) => (x > 0 ? 'pos' : x < 0 ? 'neg' : '');
+const keyOf = (t) => (typeof t === 'string' ? t : typeof t === 'object' && t
+  ? `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}` : ymd(t));
+const sgAll = () => (SG.data ? SG.data.strategies : []);
+const sgSel = () => sgAll().find((x) => x.id === SG.strat) || sgAll()[0];
+
+function dayChart(container, priceFormatter) {
+  return LC.createChart(container, {
+    autoSize: true,
+    layout: { background: { type: 'solid', color: C.bg }, textColor: C.muted, fontSize: 11 },
+    grid: { vertLines: { color: '#161d26' }, horzLines: { color: '#161d26' } },
+    rightPriceScale: { borderColor: C.line, scaleMargins: { top: 0.14, bottom: 0.06 } },
+    timeScale: { borderColor: C.line, timeVisible: false, rightOffset: 3, barSpacing: 5 },
+    crosshair: { mode: LC.CrosshairMode.Normal },
+    localization: { locale: 'pt-BR', dateFormat: 'dd/MM/yy', priceFormatter },
+    kineticScroll: { touch: true, mouse: false },
+  });
+}
+
+function sgCharts() {
+  if (SG.chart) return;
+  SG.chart = dayChart($('sg-chart'), (p) => NF[0].format(p));
+  SG.candles = SG.chart.addCandlestickSeries({
+    upColor: C.up, downColor: C.down, borderVisible: false, wickUpColor: C.up, wickDownColor: C.down,
+  });
+  SG.smas = SMA_COLOR.map((color) => SG.chart.addLineSeries({ ...lineOpts, color, lineWidth: 1 }));
+  SG.eqChart = dayChart($('sg-equity'), (p) => fmtSigned(p, 1) + '%');
+  SG.eqLines = {};
+  for (const id of Object.keys(STRAT_COLOR)) {
+    SG.eqLines[id] = SG.eqChart.addLineSeries({
+      color: STRAT_COLOR[id], lineWidth: id === SG.strat ? 2 : 1, priceLineVisible: false, lastValueVisible: true,
+    });
+  }
+  SG.hold = SG.eqChart.addLineSeries({ color: C.muted, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+  SG.chart.subscribeCrosshairMove((p) => sgLegend(p && p.time ? keyOf(p.time) : null));
+  SG.eqChart.subscribeCrosshairMove((p) => sgEqLegend(p && p.time ? keyOf(p.time) : null));
+}
+
+// Dia-base da curva: o primeiro dia ao vivo, ou o primeiro dia em que as duas carteiras têm todas as médias.
+function sgBaseT() {
+  const list = sgAll().filter((x) => x.days.length);
+  if (SG.range === 'live') {
+    const t = list.map((x) => (x.days.find((d) => d.live) || {}).t);
+    if (t.length && t.every(Boolean)) return Math.max(...t);
+  }
+  return Math.max(...list.map((x) => (x.history ? x.history.from : x.days[0].t)));
+}
+
+function sgCurve(x, baseT) {
+  const base = x.days.find((d) => d.t >= baseT);
+  if (!base) return { base: null, eq: [], hold: [] };
+  const pts = x.days.filter((d) => d.t >= base.t);
+  const tail = x.now && ymd(x.now.t - 300) > ymd(x.days[x.days.length - 1].t) ? ymd(x.now.t - 300) : null;
+  const eq = pts.map((d) => ({ time: ymd(d.t), value: (d.eq / base.eq - 1) * 100 }));
+  const hold = pts.map((d) => ({ time: ymd(d.t), value: (d.hold / base.hold - 1) * 100 }));
+  if (tail) {
+    eq.push({ time: tail, value: (x.now.equity / base.eq - 1) * 100 });
+    hold.push({ time: tail, value: (x.now.hold / base.hold - 1) * 100 });
+  }
+  return { base, eq, hold };
+}
+
+function sgLegend(key) {
+  const x = sgSel();
+  const d = (key && SG.byDay.get(key)) || x.days[x.days.length - 1];
+  const smas = x.chart_smas.map((n, i) => `<span style="color:${SMA_COLOR[i]}">M${n} ${d.sma[i] === null ? '—' : fmt(d.sma[i], 0)}</span>`);
+  const o = x.orders.find((q) => q.t === d.t);
+  $('sg-legend').innerHTML = `<div class="row"><span>${fmtUTCDay(d.t)}</span><span>fech. ${fmt(d.c, 0)}</span>${smas.join('')}</div>`
+    + `<div class="row dim"><span>${x.name}: decisão no fechamento ${fmt(d.pos * 100, 0)}% comprado</span>`
+    + `<span>${d.live ? 'ao vivo' : 'simulado'}</span></div>`
+    + (o ? `<div class="row"><span class="${o.action === 'compra' ? 'up' : 'down'}">${o.action} de ${fmt(o.size * 100, 0)}%`
+      + ` → ${fmt(o.position * 100, 0)}% comprado (${o.reason})</span></div>` : '');
+}
+
+function sgEqLegend(key) {
+  const baseT = sgBaseT();
+  const parts = [];
+  let hold = null;
+  for (const x of sgAll()) {
+    const c = sgCurve(x, baseT);
+    if (!c.base) continue;
+    const at = key ? c.eq.find((p) => p.time === key) : c.eq[c.eq.length - 1];
+    const h = key ? c.hold.find((p) => p.time === key) : c.hold[c.hold.length - 1];
+    if (h && hold === null) hold = h.value;
+    if (at) parts.push(`<span class="${STRAT_CLS[x.id]}">${x.name} ${fmtSigned(at.value, 1)}%</span>`);
+  }
+  $('sg-eq-legend').innerHTML = `<div class="row"><span>${key ? fmtUTCDay(Date.parse(key + 'T00:00:00Z') / 1000) : 'agora'}</span>`
+    + parts.join('') + `<span class="dim">segurar BTC ${hold === null ? '—' : fmtSigned(hold, 1) + '%'}</span></div>`
+    + `<div class="row dim"><span>desde ${fmtUTCDay(baseT)}</span></div>`;
+}
+
+function card(label, big, bigCls, ...subs) {
+  return el('div', { class: 'card' }, el('small', {}, label), el('div', { class: 'big ' + (bigCls || '') }, big),
+    ...subs.filter(Boolean).map((x) => (typeof x === 'string' ? el('div', { class: 'sub' }, x) : x)));
+}
+
+function sgCards() {
+  const x = sgSel();
+  const other = sgAll().find((y) => y.id !== x.id);
+  const end = x.days[x.days.length - 1];
+  const pos = x.now ? x.now.position : end.pos;
+  const on = end.on.reduce((a, c) => a + c, 0);
+  const sub = x.learn
+    ? `${on} de ${end.on.length} médias abaixo do preço; elas pesam ${pctU(end.w.reduce((a, w, i) => a + w * end.on[i], 0), 0)}`
+    : `preço acima de ${on} de ${end.on.length} médias`;
+  const comps = x.learn ? null : el('div', { class: 'comps' }, ...end.on.map((c, i) => el('span', { class: c ? 'on' : '' },
+    `${c ? '▲' : '▼'} M${x.lookbacks[i]}`)));
+  const nowS = Date.now() / 1000;
+  const next = (Math.floor(nowS / 86400) + 1) * 86400;
+  const left = Math.max(0, next - nowS);
+  const lastOrder = x.orders.length ? x.orders[x.orders.length - 1] : null;
+  const cards = [card(`${x.name}: posição agora`, `${fmt(pos * 100, 0)}% comprado`, '', sub, comps)];
+  if (x.live) {
+    cards.push(
+      card(`ao vivo desde ${fmtWhen(x.live.from)}`, pctS(x.live.ret, 2), sign(x.live.ret),
+        `segurar BTC ${pctS(x.live.hold_ret, 2)}`, other && other.live ? `${other.name}: ${pctS(other.live.ret, 2)}` : '',
+        `${fmt(x.live.days, 0)} dia(s) fechado(s) ao vivo`),
+      card('maior queda ao vivo', pctU(x.live.dd), x.live.dd > 0 ? 'neg' : '', `segurar BTC ${pctU(x.live.hold_dd)}`),
+      card('ordens ao vivo', fmt(x.live.orders, 0), '', lastOrder
+        ? `última: ${lastOrder.action} de ${fmt(lastOrder.size * 100, 0)}% em ${fmtUTCDay(lastOrder.t)} (${lastOrder.reason})` : 'nenhuma ainda'),
+    );
+  } else {
+    const start = x.live_start ? Date.parse(x.live_start + 'T00:00:00Z') / 1000 + 86400 : null;
+    cards.push(card('período ao vivo', 'começa em breve', '', start ? `primeira decisão ao vivo: ${fmtWhen(start)}` : '—'));
+  }
+  cards.push(card('próxima decisão', fmtWhen(next), '', `em ${Math.floor(left / 3600)} h ${Math.floor((left % 3600) / 60)} min`,
+    'fechamento das 00h UTC'));
+  if (x.history) {
+    cards.push(card(`histórico simulado ${fmtUTCDay(x.history.from)} a ${fmtUTCDay(x.history.to)}`, pctS(x.history.ret, 0),
+      sign(x.history.ret), `segurar BTC ${pctS(x.history.hold_ret, 0)}`,
+      `maior queda ${pctU(x.history.dd, 0)} (segurar ${pctU(x.history.hold_dd, 0)}) · ${fmt(x.history.orders, 0)} ordens`));
+  }
+  $('sg-cards').replaceChildren(...cards);
+}
+
+function sgOrders() {
+  const x = sgSel();
+  const rows = [...x.orders].reverse().map((o) => el('tr', {},
+    el('td', {}, fmtUTCDay(o.t)),
+    el('td', { class: 'l ' + (o.action === 'compra' ? 'pos' : 'neg') }, `${o.action} de ${fmt(o.size * 100, 0)}%`),
+    el('td', {}, `${fmt(o.position * 100, 0)}%`), el('td', { class: 'l' }, o.reason), el('td', {}, fmt(o.price, 0)),
+    el('td', { class: 'l ' + (o.live ? 'live' : 'muted') }, o.live ? 'ao vivo' : 'simulado')));
+  const heads = [['dia da decisão'], ['ordem', 'l'], ['comprado depois'], ['motivo', 'l'], ['fechamento'], ['', 'l']];
+  const head = el('tr', {}, ...heads.map(([h, c]) => el('th', c ? { class: c } : {}, h)));
+  $('sg-signals').replaceChildren(rows.length
+    ? el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows)))
+    : el('p', { class: 'muted' }, 'Nenhuma ordem ainda.'));
+}
+
+function sgWeights() {
+  const x = sgSel();
+  $('sg-w-title').hidden = $('sg-weights').hidden = !x.learn;
+  if (!x.learn) return;
+  const top = Math.max(...x.components.map((c) => c.weight), 1e-9);
+  const rows = x.components.map((c) => el('tr', {},
+    el('td', { class: 'l' }, `média ${c.n}`),
+    el('td', { class: 'l' }, el('span', { class: 'wbar', style: `width:${Math.round(80 * c.weight / top)}px` }), `${fmt(c.weight * 100, 1)}%`),
+    el('td', {}, `${fmt(c.weight_30d * 100, 1)}%`),
+    el('td', { class: sign(c.weight - c.weight_30d) }, `${fmtSigned((c.weight - c.weight_30d) * 100, 1)} p.p.`),
+    el('td', { class: c.on ? 'pos' : 'muted' }, c.on ? 'preço acima' : 'preço abaixo')));
+  const head = el('tr', {}, ...[['média', 'l'], ['peso agora', 'l'], ['há 30 dias'], ['mudança'], ['hoje']]
+    .map(([h, c]) => el('th', c ? { class: c } : {}, h)));
+  $('sg-weights').replaceChildren(el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows))));
+}
+
+function sgRender() {
+  const list = sgAll();
+  const x = sgSel();
+  document.querySelectorAll('[data-strat]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.strat === x.id)));
+  $('sg-foot').textContent = `Regra de "${x.name}": ${x.rule}. Nenhuma ordem é enviada: são carteiras simuladas.`
+    + ' Antes do início ao vivo, os dias foram reconstruídos com a mesma regra (simulado, marcas claras); depois, cada dia'
+    + ' é decidido quando fecha e gravado sem reescrita (ao vivo, marcas fortes). A congelada é o controle; o aprendiz'
+    + ' muda os pesos sozinho conforme os sinais de cada média rendem. Datas em UTC; inclui 0,1% de taxa por lado.';
+  if (!x || !x.days.length) {
+    $('sg-cards').replaceChildren(el('p', { class: 'muted' },
+      'As carteiras simuladas ainda não têm dias gravados: o serviço paper grava o histórico na primeira execução.'));
+    return;
+  }
+  sgCharts();
+  const days = x.days;
+  SG.byDay = new Map(days.map((d) => [ymd(d.t), d]));
+  const bars = days.map((d) => ({ time: ymd(d.t), open: d.o, high: d.h, low: d.l, close: d.c }));
+  if (x.now) {
+    const prev = days[days.length - 1];
+    const t = ymd(x.now.t - 300);
+    if (t > bars[bars.length - 1].time) {
+      bars.push({ time: t, open: prev.c, high: Math.max(prev.c, x.now.price), low: Math.min(prev.c, x.now.price), close: x.now.price });
+    }
+  }
+  SG.candles.setData(bars);
+  x.chart_smas.forEach((n, i) => SG.smas[i].setData(days.filter((d) => d.sma[i] !== null)
+    .map((d) => ({ time: ymd(d.t), value: d.sma[i] }))));
+  SG.smas.forEach((s) => s.applyOptions({ visible: SG.sma }));
+  const times = new Set(bars.map((b) => b.time));
+  const ms = [];
+  for (const o of x.orders) {
+    if (!o.live && !SG.sim) continue;
+    const buy = o.action === 'compra';
+    ms.push({
+      time: ymd(o.t), position: buy ? 'belowBar' : 'aboveBar', shape: buy ? 'arrowUp' : 'arrowDown',
+      color: buy ? (o.live ? C.tp : 'rgba(63, 185, 80, .42)') : (o.live ? C.sl : 'rgba(248, 81, 73, .42)'),
+      text: (buy ? '+' : '−') + fmt(o.size * 100, 0) + '%',
+    });
+  }
+  if (x.live_start && times.has(x.live_start)) {
+    ms.push({ time: x.live_start, position: 'aboveBar', shape: 'circle', color: C.accent, text: 'início ao vivo' });
+  }
+  ms.sort((a, c) => (a.time < c.time ? -1 : a.time > c.time ? 1 : 0));
+  SG.candles.setMarkers(ms);
+
+  const hasLive = days.some((d) => d.live);
+  $('sg-notice').hidden = !(SG.range === 'live' && !hasLive);
+  $('sg-notice').textContent = 'O período ao vivo ainda não fechou o primeiro dia: a curva mostra o histórico simulado até lá.';
+  const baseT = sgBaseT();
+  let holdSet = false;
+  for (const y of list) {
+    const c = sgCurve(y, baseT);
+    SG.eqLines[y.id].setData(c.eq);
+    SG.eqLines[y.id].applyOptions({ lineWidth: y.id === x.id ? 2 : 1 });
+    if (!holdSet && c.base) { SG.hold.setData(c.hold); holdSet = true; }
+  }
+  SG.eqChart.timeScale().fitContent();
+  if (!SG.fitted) {
+    SG.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - 365), to: bars.length + 3 });
+    SG.fitted = true;
+  }
+  sgCards();
+  sgWeights();
+  sgOrders();
+  sgLegend(null);
+  sgEqLegend(null);
+  $('sg-updated').textContent = `atualizado ${fmtSec(Date.now() / 1000)} · último dia fechado ${fmtUTCDay(days[days.length - 1].t)}`;
+}
+
+async function loadStrategy() {
+  SG.last = Date.now();
+  try {
+    SG.data = await api('paper');
+    sgRender();
+  } catch (e) {
+    $('sg-cards').replaceChildren(el('p', { class: 'muted' }, 'Erro ao ler as carteiras simuladas: ' + e.message));
+  }
+}
+
+$('sg-show-sma').checked = SG.sma;
+$('sg-show-sim').checked = SG.sim;
+$('sg-show-sma').addEventListener('change', (e) => { SG.sma = e.target.checked; store.set('sgSma', SG.sma); if (SG.data) sgRender(); });
+$('sg-show-sim').addEventListener('change', (e) => { SG.sim = e.target.checked; store.set('sgSim', SG.sim); if (SG.data) sgRender(); });
+document.querySelectorAll('[data-range]').forEach((btn) => {
+  btn.setAttribute('aria-pressed', String(btn.dataset.range === SG.range));
+  btn.addEventListener('click', () => {
+    SG.range = btn.dataset.range;
+    store.set('sgRange', SG.range);
+    document.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+    if (SG.data) sgRender();
+  });
+});
+document.querySelectorAll('[data-strat]').forEach((btn) => btn.addEventListener('click', () => {
+  SG.strat = btn.dataset.strat;
+  store.set('sgStrat', SG.strat);
+  if (SG.data) sgRender();
+}));
+
 // --- laço ---
 let lastGaps = 0;
 async function tick() {
   if (document.hidden) return;
   loadHealth();
+  if (!$('tab-strategy').hidden) {
+    if (Date.now() - SG.last > SG_EVERY_MS) loadStrategy();
+    return;
+  }
   if ($('tab-chart').hidden) return;
   try { await refreshTail(); } catch (e) { console.warn('candles:', e); }
   if (Date.now() - lastGaps > GAPS_MS) { lastGaps = Date.now(); loadGaps(); }
@@ -789,6 +1075,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) tick
 
 (async function start() {
   if (location.hash === '#pesquisa') document.querySelector('[data-tab="research"]').click();
+  if (location.hash === '#estrategia') document.querySelector('[data-tab="strategy"]').click();
   applyVisibility();
   loadHealth();
   await loadInitial();

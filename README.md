@@ -17,6 +17,7 @@ Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquis
 | Fluxo | `python -m wescalp.flow` | OFI, desequilíbrio do livro, microprice e delta contra o retorno futuro do mid. |
 | Candles ao vivo | `python -m wescalp.backfill --follow` | Serviço `candles`: completa as 100 semanas e busca os candles novos a cada minuto. |
 | Painel | `python -m wescalp.web` | Serviço `web` (porta 8090): gráfico, marcas dos setups, fluxo, estado do coletor e relatórios. |
+| Carteiras simuladas | `python -m wescalp.paper --follow` | Serviço `paper`: a regra congelada e o aprendiz aplicados ao BTC-USDT spot, gravados dia a dia quando o dia fecha (sem ordem real). |
 | Estado | `python -m wescalp.health` | Estado do coletor e do banco no terminal; o painel mostra o mesmo. Alerta desligado por enquanto. |
 
 A KuCoin não entrega histórico do livro de ordens: ele só existe a partir do dia em que o coletor liga.
@@ -209,6 +210,36 @@ Prova única nas 16 semanas intocadas (KuCoin BTC-USDT spot, 04/07 a 21/10/2026,
 23/10): a combinação fez +22,2% contra +34,2% de segurar o BTC, as duas com queda máxima de 6,9%. Entrou aos
 poucos depois do fundo de julho (33% em vaivém até agosto) e está 100% comprada desde 19/08. Lucro, mas atrás de
 segurar numa alta, o mesmo padrão da segunda metade do estudo.
+
+### Aprendiz: aprender com os próprios sinais
+
+`python -m wescalp.learn --file ...` testa uma carteira que aprende com os sinais que ela mesma dá, com a forma de
+aprender fixada antes de rodar: as 13 médias de 50 a 170 dias como componentes, cada uma com uma nota (log do
+retorno dos sinais dela, com taxa, descontado com meia-vida de 180 dias) e peso exp(η · nota) (Hedge, η = ln 2 / 0,1:
+10% a mais dobra o peso relativo), posição = soma dos pesos das médias compradas, ajuste só quando a posição desejada
+se afasta 5 p.p. Controle: as mesmas 13 médias com pesos iguais, para isolar o efeito de aprender.
+
+Primeira rodada (23/10, 11/10/2018 a 30/06/2026): aprendiz 52,9% ao ano, queda de 41%, Sharpe 1,22, p 0,004 no teste
+da sorte; sem aprender, 53,9%, 43%, 1,23; congelada, 54,9%, 44%, 1,25. Ele aprende coisas sensatas (médias rápidas na
+alta de 2020-2021, lentas na queda de 2022), mas não rende mais: as médias andam juntas, e escolher a melhor entre
+elas vale pouco. Pela regra fixada, a congelada segue campeã; o aprendiz entra na carteira simulada ao vivo como
+experimento, ao lado dela.
+
+## Carteiras simuladas ao vivo
+
+O serviço `paper` (`wescalp/paper.py`, Python puro, sem numpy) aplica duas regras fixadas antes aos candles do
+BTC-USDT spot que o serviço `candles` grava, e registra tudo em `paper_meta`, `paper_days` e `paper_orders`:
+
+- **congelada** (controle): 1/3 do capital em cada média diária de 50, 100 e 150 dias;
+- **aprendiz** (experimento): as 13 médias de 50 a 170 dias pesadas pelo que os sinais de cada uma renderam (o
+  Hedge de `wescalp.learn`), ajustando só quando a posição desejada se afasta 5 p.p.
+
+Decisão no fechamento das 00h UTC (21h em Brasília), valendo para o dia seguinte, com 0,1% por compra e venda. Na
+primeira execução, o histórico disponível no banco é reconstruído com a mesma regra (`live = false`) e o dia vira o
+início do período ao vivo; daí em diante, cada dia é decidido quando fecha e gravado sem reescrita. Um teste confere
+que o motor dá exatamente as posições e os pesos da pesquisa (`refine`, `learn`). A aba **Estratégia** do painel
+mostra o gráfico diário com as médias e as ordens (simuladas claras, ao vivo fortes), a curva das duas carteiras
+contra segurar o BTC, os pesos que o aprendiz está dando a cada média e a tabela de ordens.
 
 ## Painel
 

@@ -177,6 +177,31 @@ dl.kvs { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; f
 dl.kvs dt { color: var(--muted); }
 dl.kvs dd { margin: 0; overflow-wrap: anywhere; }
 
+/* estratégia (carteira simulada) */
+.small { font-size: 12.5px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin: 6px 0 10px; }
+.card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; }
+.card small { display: block; color: var(--muted); font-size: 12px; }
+.card .big { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.card .sub { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pos { color: var(--tp); }
+.neg { color: var(--sl); }
+.comps { display: flex; gap: 6px; margin-top: 4px; font-size: 12px; }
+.comps span { padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.comps span.on { color: var(--tp); border-color: rgba(63, 185, 80, .5); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--panel); font-size: 13px; padding: 3px 10px; color: var(--muted); }
+.seg button[aria-pressed="true"] { color: var(--text); background: #1f2833; }
+.fill { position: absolute; inset: 0; }
+.sg-price { height: min(52vh, 520px); min-height: 280px; }
+.sg-eq { height: min(32vh, 300px); min-height: 200px; margin-top: 8px; }
+.sg-h3 { font-size: 15px; margin: 14px 0 6px; }
+#sg-signals .scroll { max-height: 360px; overflow-y: auto; }
+td.live { color: var(--accent); }
+.wbar { display: inline-block; height: 8px; border-radius: 2px; background: #d2a8ff; vertical-align: middle; margin-right: 6px; }
+.legend .c-frozen { color: #3fb950; }
+.legend .c-learner { color: #d2a8ff; }
+
 @media (max-width: 640px) {
   body { font-size: 13px; }
   .status { padding-left: 10px; padding-right: 10px; }
@@ -187,6 +212,8 @@ dl.kvs dd { margin: 0; overflow-wrap: anywhere; }
   main { padding: 6px 8px 14px; }
   .tabs { padding: 4px 8px 0; }
   .chart-wrap { height: 54vh; min-height: 280px; }
+  .sg-price { height: 48vh; min-height: 260px; }
+  .sg-eq { height: 30vh; min-height: 190px; }
   .legend { font-size: 10.5px; right: 56px; }
   #flow { height: 132px; }
   .opts-box { position: fixed; left: 8px; right: 8px; top: auto; min-width: 0; }

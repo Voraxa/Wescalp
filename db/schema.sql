@@ -76,3 +76,44 @@ CREATE TABLE IF NOT EXISTS reports (
     body        jsonb       NOT NULL,
     PRIMARY KEY (name, created_at)
 );
+
+-- Carteiras simuladas (wescalp.paper): nenhum dinheiro, só o registro de regras fixadas andando no tempo.
+-- Só recebem inserções: um dia ou uma ordem gravados nunca mudam. live_start separa o histórico reconstruído do
+-- período ao vivo.
+CREATE TABLE IF NOT EXISTS paper_meta (
+    strategy    text        PRIMARY KEY,  -- media-50-100-150 (congelada) | aprendiz-50-170
+    name        text        NOT NULL,
+    rule        text        NOT NULL,
+    live_start  date        NOT NULL,     -- a partir do fechamento deste dia, cada decisão é tomada quando o dia fecha
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS paper_days (
+    strategy   text             NOT NULL,
+    day        date             NOT NULL,  -- dia UTC; fechamento = último candle de 5 min do spot
+    open       double precision NOT NULL,
+    high       double precision NOT NULL,
+    low        double precision NOT NULL,
+    close      double precision NOT NULL,
+    held       double precision NOT NULL,  -- fração comprada durante o dia (decidida no fechamento anterior)
+    position   double precision NOT NULL,  -- fração decidida no fechamento do dia, vale para o dia seguinte
+    equity     double precision NOT NULL,  -- carteira simulada no fechamento, com taxa (1 no primeiro dia)
+    hold       double precision NOT NULL,  -- segurar o BTC desde o primeiro dia
+    live       boolean          NOT NULL,
+    detail     jsonb            NOT NULL,  -- {"components": [{n, sma, on, held, w, s}]}: média, comprada, peso, nota
+    created_at timestamptz      NOT NULL DEFAULT now(),
+    PRIMARY KEY (strategy, day)
+);
+
+CREATE TABLE IF NOT EXISTS paper_orders (
+    strategy   text             NOT NULL,
+    day        date             NOT NULL,  -- dia em cujo fechamento a decisão foi tomada
+    action     text             NOT NULL,  -- compra | venda
+    size       double precision NOT NULL,  -- fração do capital
+    position   double precision NOT NULL,  -- fração comprada depois da ordem
+    price      double precision NOT NULL,  -- fechamento do dia; a ordem simulada sai na abertura seguinte
+    reason     text             NOT NULL,  -- médias que viraram (M50 ↑) ou "pesos"
+    live       boolean          NOT NULL,
+    created_at timestamptz      NOT NULL DEFAULT now(),
+    PRIMARY KEY (strategy, day)
+);

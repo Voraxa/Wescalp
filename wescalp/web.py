@@ -30,7 +30,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import db, features, health, research
+from . import db, features, health, paper, research
 from .config import CANDLE_SECONDS, DATABASE_URL, FUTURES_SYMBOL, SPOT_SYMBOL
 from .flow import Quote, Tick, aggregate
 from .kucoin import Candle
@@ -421,6 +421,19 @@ class Store:
         self._old_gaps = {key: (time.monotonic(), per_minute, before)}
         return per_minute, before
 
+    async def paper(self) -> tuple | None:
+        """(início ao vivo de cada carteira, {id: (dias, ordens)}, último candle do spot); None sem as tabelas."""
+        async with self.pool.connection() as conn:
+            if not await health._one(conn, "SELECT to_regclass('paper_days') IS NOT NULL"):
+                return None
+            meta = await paper.load_meta(conn)
+            data = {spec.id: (await paper.load_rows(conn, spec), await paper.load_orders(conn, spec))
+                    for spec in paper.STRATEGIES}
+            cur = await conn.execute(
+                "SELECT ts, close FROM candles WHERE source = 'spot' AND symbol = %s ORDER BY ts DESC LIMIT 1",
+                (SPOT_SYMBOL,))
+            return meta, data, await cur.fetchone()
+
     async def reports(self) -> list[tuple]:
         """Último relatório de cada nome na tabela reports; vazio se a tabela não existe."""
         async with self.pool.connection() as conn:
@@ -572,6 +585,14 @@ async def api_reports(request: Request) -> JSON:
     return JSON({"reports": [{"name": n, "created_at": c, "body": b} for n, c, b in rows]})
 
 
+async def api_paper(request: Request) -> JSON:
+    """Carteiras simuladas (wescalp.paper): a congelada e o aprendiz, com dias, ordens, componentes e números."""
+    got = await request.app.state.store.paper()
+    meta, data, last = got if got is not None else ({}, {}, None)
+    return JSON({"strategies": [paper.payload(spec, meta.get(spec.id), *data.get(spec.id, ([], [])), last)
+                                for spec in paper.STRATEGIES]})
+
+
 async def _bad_request(request: Request, exc: Exception) -> JSON:
     return JSON({"error": str(exc)}, 400)
 
@@ -601,6 +622,7 @@ def create_app(store=None, limits: health.Limits | None = None) -> Starlette:
             Route("/api/gaps", api_gaps),
             Route("/api/flow", api_flow),
             Route("/api/reports", api_reports),
+            Route("/api/paper", api_paper),
             Mount("/", Static(directory=STATIC_DIR, html=True)),
         ],
         middleware=[Middleware(GZipMiddleware, minimum_size=1024)],
