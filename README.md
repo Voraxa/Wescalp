@@ -558,6 +558,56 @@ O efeito não se repetiu. Mesmo sem taxa, a regra rendeu um terço do que rendeu
 0,898. Neste trecho, a maior parte da alta (cerca de +21%) veio com a bolsa americana aberta, o contrário do efeito
 publicado. Com a taxa do spot, a regra perdeu dinheiro.
 
+## Moedas mais voláteis
+
+`python -m wescalp.altcoins` testa ETH, SOL, XRP, DOGE e ADA contra USDT. Os candles vêm de
+`wescalp.binance.fetch(..., symbol=...)`. As cinco estão na Classe A da KuCoin, com a mesma taxa do BTC (0,1% por lado,
+conferida na API pública). O desenho foi registrado antes da rodada (`8a8e1cc`). Período de 01/2021 a 06/2026. Ficam
+de fora as moedas que morreram no caminho, o que favorece quem só compra.
+
+**1. Movimento médio de um candle e acerto de direção necessário para empatar com a ida e volta de 0,2%:**
+
+| Moeda | 15 min | 1 h | 4 h | 1 dia |
+| --- | --- | --- | --- | --- |
+| BTC | 0,20% / impossível | 0,39% / 76% | 0,80% / 63% | 2,08% / 52% |
+| ETH | 0,26% / 89% | 0,52% / 69% | 1,06% / 59% | 2,81% / 52% |
+| SOL | 0,40% / 74% | 0,79% / 62% | 1,60% / 55% | 4,03% / 48% |
+| XRP | 0,32% / 81% | 0,62% / 66% | 1,24% / 57% | 3,16% / 49% |
+| DOGE | 0,39% / 75% | 0,75% / 63% | 1,50% / 55% | 4,07% / 45% |
+| ADA | 0,36% / 77% | 0,70% / 64% | 1,37% / 56% | 3,45% / 50% |
+
+A volatilidade melhora a conta: no candle de 1 h, a SOL pede 62% de acerto, contra 76% do BTC. Ainda assim, fica
+acima dos 50% a 52% que os modelos acertam.
+
+**2. Previsão no curto prazo:**
+
+- **Sinais:** de preço e volume, de hora em hora.
+- **Horas testadas:** todas e só as de volatilidade alta.
+- **Treino e teste:** lado e corte saem de 2021–2023; a medida é fora da amostra, de 2024 a 06/2026.
+- **Régua:** mais que 0,2% por operação com t ≥ 3,4.
+
+**Nenhum passa.** As altcoins mostram de novo o padrão de comprar depois de queda forte, agora com movimento acima da
+taxa: depois da pior queda de 24 h, de +0,5% a +2,0% nas 12 h seguintes. Os casos são poucos e o ruído é grande, com t
+de 1,0 a 2,5. O mais perto da régua foi o volume alto na DOGE: +1,67% nas 12 h seguintes, em 122 casos, com t de 3,3.
+
+**3. Tendência diária** (a congelada 50/100/150), de 07/2021 a 06/2026, 0,1% por lado:
+
+| Moeda | Congelada: ao ano / queda / Sharpe | Segurar: ao ano / queda / Sharpe | p da sorte |
+| --- | --- | --- | --- |
+| BTC | 22,6% / 44% / 0,78 | 10,8% / 77% / 0,46 | 0,050 |
+| ETH | 17,2% / 52% / 0,59 | -7,2% / 79% / 0,25 | 0,064 |
+| SOL | 47,8% / 69% / 0,93 | 15,7% / 96% / 0,64 | 0,085 |
+| XRP | -3,3% / 80% / 0,20 | 8,0% / 78% / 0,49 | 0,749 |
+| DOGE | -5,7% / 75% / 0,21 | -22,3% / 85% / 0,18 | 0,356 |
+| ADA | -2,9% / 71% / 0,19 | -36,4% / 95% / -0,08 | 0,170 |
+| cesta das 6 | 18,0% / 51% / 0,63 | 2,0% / 82% / 0,38 | — |
+
+- **A cesta passa na régua fixada:** com 1/6 do capital em cada moeda, a congelada rendeu 18% ao ano, contra 2% de
+  segurar a cesta, e caiu 51% contra 82%.
+- **Nenhuma moeda sozinha passa:** BTC, ETH e SOL ficaram com p de 0,05 a 0,085, acima do limite de 0,0083 para seis
+  moedas.
+- **Na XRP a regra perdeu para segurar.**
+
 ### Por que procurar um vale menor não resolve
 
 A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
