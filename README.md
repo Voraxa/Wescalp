@@ -23,6 +23,49 @@ Bot de scalping de BTC na KuCoin, publicado em `wescalp.avadata.com.br`. Pesquis
 A KuCoin não entrega histórico do livro de ordens: ele só existe a partir do dia em que o coletor liga.
 Por isso o coletor tem `restart: unless-stopped` e healthcheck.
 
+## Como os testes foram feitos
+
+Tudo foi testado em histórico real, sempre do mesmo jeito:
+
+1. O modelo aprende com uma parte do passado.
+2. Depois emite os sinais, um a um, num trecho seguinte que ele não viu. Cada sinal usa só o que já era conhecido
+   naquele instante.
+3. O resultado sai dos candles reais desse trecho, com taxa, DCA e stop simulados candle a candle. Dentro de um
+   candle de 5 min não se sabe a ordem dos preços, então conta o pior caso.
+
+É a prova real com o histórico: o sinal sai antes, e a verdade já está nos candles do trecho de teste.
+
+Três cuidados a mais:
+
+- **Walk-forward:** em vez de uma divisão só, o treino anda com o tempo. O modelo aprende até um ponto, testa o
+  trecho seguinte e avança, para o resultado não depender de uma data de corte.
+- **Desenho fixado antes:** regras, parâmetros e critério de aprovação foram decididos antes de rodar (os últimos
+  testes, num commit antes da rodada), para não ajustar o modelo ao resultado.
+- **Teste da sorte e dados intocados:** cada candidato foi comparado com milhares de sorteios das mesmas operações em
+  momentos ao acaso. Os aprovados foram para trechos guardados que nenhum teste tinha usado: as 16 semanas de jul a
+  out/2026 e o BTC de 2013 a 2017 da Bitstamp.
+
+| Teste | Aprendeu com | Sinais testados em | Resultado |
+| --- | --- | --- | --- |
+| Setups de candle e 288 combinações de alvo e stop | 60 semanas, andando de 4 em 4 | as 4 semanas seguintes, de nov/2024 a jul/2026 | nenhuma lucra depois da taxa |
+| Livro de ordens da Tardis com LightGBM | 10 dias, andando de 3 em 3 | os 3 dias seguintes, de dez/2024 a fev/2026 | prevê 0,01% a 0,02%, abaixo da taxa |
+| Cérebro de compra com DCA | 60 semanas, andando de 4 em 4 | as 4 semanas seguintes, de jan a jul/2026 | perde em todas as geometrias |
+| Spot com alvo fixo e DCA | o histórico da Binance desde 2017, andando | 10/2018 a 06/2026 | perde em todos os alvos |
+| Tendência diária (médias de 50 a 150 dias) | regras clássicas fixadas antes | 10/2018 a 06/2026, depois as 16 semanas guardadas | passa no teste da sorte; lucro, mas atrás de segurar nas altas |
+| Aprendiz (pesos pelos próprios sinais) | dia a dia, só com o passado | 10/2018 a 06/2026 | empata com a congelada |
+| Modelo bayesiano com knots | 87% do histórico e walk-forward anual | os 13% finais e cada ano de 2020 a 2026 | perde para a congelada |
+| Risco por cima da congelada | regras fixadas antes | 10/2018 a 06/2026 | nenhum melhora |
+| Prova única da congelada | nada: dados nunca vistos | 2013 a 08/2017, Bitstamp | lucro e queda menor, mas não passa no teste da sorte |
+| Fluxo, prêmio, funding e posições | até 2022 ou 2023 | 2023 ou 2024 a 06/2026 | nenhum sinal paga a taxa |
+| Sistema de day trade em camadas | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | perde de 19% a 49% ao ano |
+
+**Limites:**
+
+- É simulação sobre o passado, não operação real. Na prática a ordem limitada nem sempre é executada e o preço
+  escorrega um pouco, então o resultado real tende a ser igual ou pior.
+- Nenhum teste prova que nada funciona; prova que o que foi tentado não funcionou.
+- O único teste do futuro de verdade é a carteira simulada ao vivo, rodando desde 23/10/2026.
+
 ## Rótulos (Fase 1)
 
 `python -m wescalp.labels --tp 1.5 --sl 1 --bars 12` marca, para cada candle de 5 min do perpétuo, o que teria
