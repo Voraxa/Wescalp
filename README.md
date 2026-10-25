@@ -558,6 +558,57 @@ O efeito não se repetiu. Mesmo sem taxa, a regra rendeu um terço do que rendeu
 0,898. Neste trecho, a maior parte da alta (cerca de +21%) veio com a bolsa americana aberta, o contrário do efeito
 publicado. Com a taxa do spot, a regra perdeu dinheiro.
 
+### Por que procurar um vale menor não resolve
+
+A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
+06/2026, com candles da Binance:
+
+| Candle | Movimento médio de um candle | Acerto de direção necessário para empatar com a taxa |
+| --- | --- | --- |
+| 5 min | 0,12% | impossível: mesmo acertando todos, perde |
+| 15 min | 0,20% | 99% |
+| 1 h | 0,40% | 75% |
+| 4 h | 0,81% | 62% |
+| 1 dia | 2,1% a 2,3% | 52% |
+
+Os modelos testados acertam a direção de 50% a 52% das vezes, o que só basta no diário; por isso só o diário
+funcionou. Esse acerto de direção é outra coisa que o acerto dos ciclos, que sai alto com alvo pequeno e stop longe.
+
+A regra "comprar quando o candle fecha abaixo da abertura do anterior (ou de dois antes)" aparece em cerca de metade
+dos candles. Depois dela, o preço sobe em média de 0,003% (5 min) a 0,03% (1 h e 4 h) nos candles seguintes: de 7 a 70
+vezes menos que a taxa.
+
+### O vale no candle diário com alvo
+
+`python -m wescalp.dailydip --file ...` testa a mesma regra no candle diário. O desenho foi registrado antes da rodada
+(`bbaecf3`):
+
+- **Compra:** no fechamento do dia que fecha abaixo da abertura do anterior (ou de dois antes), com o capital inteiro.
+- **Venda:** no alvo de 2%, 3% ou 5% sobre a compra, conferido nos candles de 5 min.
+- **Stop:** duas versões, sem stop e com stop 3 alvos abaixo da compra.
+
+Período de 10/2018 a 06/2026, com 0,1% por lado. Resultados com o dia anterior; com dois dias antes, ficam parecidos:
+
+| Saída | Alvo | Operações/ano | Acerto | Ao ano | Queda máx. | Sharpe | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| só alvo | 2% | 10,9 | 99% | 9,9% | 75% | 0,46 | 0,972 |
+| só alvo | 3% | 7,9 | 98% | 12,7% | 76% | 0,50 | 0,957 |
+| só alvo | 5% | 5,6 | 98% | 17,4% | 76% | 0,57 | 0,924 |
+| alvo e stop | 2% | 88,5 | 74% | -25,5% | 90% | -0,68 | 0,860 |
+| alvo e stop | 3% | 57,1 | 74% | -24,4% | 89% | -0,46 | 0,920 |
+| alvo e stop | 5% | 31,9 | 77% | -6,3% | 80% | 0,13 | 0,882 |
+| segurar BTC | — | — | — | 32,6% | 77% | 0,77 | — |
+| congelada 50/100/150 | — | — | — | 54,9% | 44% | 1,25 | — |
+
+Nenhuma variante passa.
+
+- **Só com alvo:** quase toda operação fecha no lucro (98% a 99%), mas rende de um terço a pouco mais da metade de
+  segurar. Ela vende cedo nas altas e espera um novo vale, e nas quedas fica presa. A operação mais longa comprou em
+  10/11/2021 a 64.882 (perto do topo) e só bateu os +5% em 04/03/2024, 845 dias depois. A queda máxima é a mesma de
+  segurar.
+- **Com stop:** as perdas no stop comem os ganhos, de -6% a -37% ao ano.
+- **Dias de sinal:** não são melhores que dias ao acaso (p de 0,86 a 1,0).
+
 ## Moedas mais voláteis
 
 `python -m wescalp.altcoins` testa ETH, SOL, XRP, DOGE e ADA contra USDT. Os candles vêm de
@@ -614,7 +665,8 @@ O [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (e o [
 do mesmo autor) é um pacote de skills do Claude para ações americanas. Não traz uma estratégia que ganha, e sim
 ferramentas de disciplina: scanner, entrada, saída, simulação, tamanho, trava de risco e aprovação humana antes de
 cada ordem. No exemplo do próprio autor, um rompimento da Tesla, a simulação e o histórico deram cara ou coroa. Três
-ideias foram testadas aqui.
+ideias vieram para cá: o rompimento da faixa de abertura, que foi testado; o tamanho pela perda máxima com a trava
+de risco; e as chances antes de cada sinal, no painel.
 
 ### Rompimento da faixa de abertura (ORB)
 
@@ -686,56 +738,39 @@ sair:
 - **Nada foi promovido:** não houve teste da sorte nem de robustez para isso. É a régua que a fase de enviar ordens
   usaria.
 
-### Por que procurar um vale menor não resolve
+### Chances antes de cada sinal
 
-A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
-06/2026, com candles da Binance:
+A "máquina do tempo" do pacote mostra, antes de cada operação, o que o mesmo setup fez nas vezes anteriores. Aqui ela
+olha os sinais da congelada: a virada de uma das médias no fechamento das 00h UTC, quando o fechamento passa para
+cima da média (compra daquele terço) ou para baixo (venda). `python -m wescalp.odds --file ...` conta as viradas nos
+candles diários da Binance de 17/08/2017 a 30/06/2026, com 0,1% por lado, e grava `wescalp/static/odds.json`. O
+primeiro dia de cada média não conta.
 
-| Candle | Movimento médio de um candle | Acerto de direção necessário para empatar com a taxa |
-| --- | --- | --- |
-| 5 min | 0,12% | impossível: mesmo acertando todos, perde |
-| 15 min | 0,20% | 99% |
-| 1 h | 0,40% | 75% |
-| 4 h | 0,81% | 62% |
-| 1 dia | 2,1% a 2,3% | 52% |
-
-Os modelos testados acertam a direção de 50% a 52% das vezes, o que só basta no diário; por isso só o diário
-funcionou. Esse acerto de direção é outra coisa que o acerto dos ciclos, que sai alto com alvo pequeno e stop longe.
-
-A regra "comprar quando o candle fecha abaixo da abertura do anterior (ou de dois antes)" aparece em cerca de metade
-dos candles. Depois dela, o preço sobe em média de 0,003% (5 min) a 0,03% (1 h e 4 h) nos candles seguintes: de 7 a 70
-vezes menos que a taxa.
-
-### O vale no candle diário com alvo
-
-`python -m wescalp.dailydip --file ...` testa a mesma regra no candle diário. O desenho foi registrado antes da rodada
-(`bbaecf3`):
-
-- **Compra:** no fechamento do dia que fecha abaixo da abertura do anterior (ou de dois antes), com o capital inteiro.
-- **Venda:** no alvo de 2%, 3% ou 5% sobre a compra, conferido nos candles de 5 min.
-- **Stop:** duas versões, sem stop e com stop 3 alvos abaixo da compra.
-
-Período de 10/2018 a 06/2026, com 0,1% por lado. Resultados com o dia anterior; com dois dias antes, ficam parecidos:
-
-| Saída | Alvo | Operações/ano | Acerto | Ao ano | Queda máx. | Sharpe | p da sorte |
+| Compra | Vezes | 30 dias depois, acima | Variação mediana em 30 dias | Operações no lucro | Ganho mediano | Perda mediana | Duração mediana |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| só alvo | 2% | 10,9 | 99% | 9,9% | 75% | 0,46 | 0,972 |
-| só alvo | 3% | 7,9 | 98% | 12,7% | 76% | 0,50 | 0,957 |
-| só alvo | 5% | 5,6 | 98% | 17,4% | 76% | 0,57 | 0,924 |
-| alvo e stop | 2% | 88,5 | 74% | -25,5% | 90% | -0,68 | 0,860 |
-| alvo e stop | 3% | 57,1 | 74% | -24,4% | 89% | -0,46 | 0,920 |
-| alvo e stop | 5% | 31,9 | 77% | -6,3% | 80% | 0,13 | 0,882 |
-| segurar BTC | — | — | — | 32,6% | 77% | 0,77 | — |
-| congelada 50/100/150 | — | — | — | 54,9% | 44% | 1,25 | — |
+| M50 ↑ | 84 | 44% | -1,4% | 23% | +19,2% | -2,6% | 4 dias |
+| M100 ↑ | 57 | 53% | +2,1% | 19% | +28,4% | -2,6% | 6 dias |
+| M150 ↑ | 35 | 46% | -3,7% | 23% | +36,5% | -3,6% | 7 dias |
 
-Nenhuma variante passa.
+A operação vai da compra até a venda seguinte da mesma média.
 
-- **Só com alvo:** quase toda operação fecha no lucro (98% a 99%), mas rende de um terço a pouco mais da metade de
-  segurar. Ela vende cedo nas altas e espera um novo vale, e nas quedas fica presa. A operação mais longa comprou em
-  10/11/2021 a 64.882 (perto do topo) e só bateu os +5% em 04/03/2024, 845 dias depois. A queda máxima é a mesma de
-  segurar.
-- **Com stop:** as perdas no stop comem os ganhos, de -6% a -37% ao ano.
-- **Dias de sinal:** não são melhores que dias ao acaso (p de 0,86 a 1,0).
+| Venda | Vezes | 30 dias depois, acima | Variação mediana em 30 dias | Recompra mais barata | Recompra mediana | Dias até a recompra |
+| --- | --- | --- | --- | --- | --- | --- |
+| M50 ↓ | 85 | 42% | -1,9% | 24% | 1,5% mais cara | 8 |
+| M100 ↓ | 58 | 44% | -2,1% | 25% | 2,2% mais cara | 2 |
+| M150 ↓ | 36 | 33% | -7,6% | 23% | 3,3% mais cara | 5 |
+
+- **A virada não diz para onde o preço vai:** 30 dias depois de uma compra, o BTC estava acima em 44% a 53% das
+  vezes; depois de uma venda, em 33% a 44%.
+- **O ganho vem da assimetria:** só 19% a 23% das compras fecharam no lucro, mas o ganho mediano é de 7 a 11 vezes a
+  perda mediana. A operação típica é um vai e volta de 4 a 7 dias.
+- **Só 1 em cada 4 vendas deu recompra mais barata.** Em mediana, a recompra saiu de 1,5% a 3,3% mais cara. A venda
+  serve para cortar a perda, que fica pequena nas compras que dão errado.
+- **No painel:** a tabela de ordens da aba Estratégia tem a coluna "no histórico". Passar o mouse sobre o dia de uma
+  ordem mostra o resumo na legenda do gráfico; clicar numa seta ou numa linha da tabela abre o texto completo no
+  quadro abaixo do gráfico, que começa no último sinal. No aprendiz, só as viradas de 50, 100 e 150 dias têm
+  histórico; as outras mostram um traço.
+- **É histórico, não previsão:** é o mesmo período em que a congelada foi escolhida, então não é prova nova dela.
 
 ## Carteiras simuladas ao vivo
 
@@ -751,7 +786,8 @@ primeira execução, o histórico disponível no banco é reconstruído com a me
 início do período ao vivo; daí em diante, cada dia é decidido quando fecha e gravado sem reescrita. Um teste confere
 que o motor dá exatamente as posições e os pesos da pesquisa (`refine`, `learn`). A aba **Estratégia** do painel
 mostra o gráfico diário com as médias e as ordens (simuladas claras, ao vivo fortes), a curva das duas carteiras
-contra segurar o BTC, os pesos que o aprendiz está dando a cada média e a tabela de ordens.
+contra segurar o BTC, os pesos que o aprendiz está dando a cada média e a tabela de ordens, com o que o histórico diz
+de cada sinal (ver "Chances antes de cada sinal").
 
 ## Painel
 
