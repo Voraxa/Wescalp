@@ -25,6 +25,11 @@
 semanas guardadas (04/07 a 21/10/2026, candles da KuCoin, `--file data/candles/BTC-USDT-5m.csv.gz`). Duas perguntas: o
 efeito se repete (sem taxa, total acima de zero e p ≤ 0,05 no teste da sorte)? E dá lucro com a taxa do spot (0,1% por
 lado, total acima de zero e Sharpe acima do de segurar no mesmo período)? Se nenhuma passar, a prova única não roda.
+
+Nota depois da rodada (25/10/2026, sem mudar o método): a hipótese nula ficou viesada a favor dos sorteios. Os dias
+são os que tiveram rompimento, e a entrada sorteada pode cair antes dele, num dia que já se sabe que vai fechar acima da
+faixa; por isso todos os sorteios renderam mais e o p deu 1,000, o que não mede o setup. O veredito não depende disso:
+sem taxa a regra rende perto de zero (de -1,4% a +2,1% ao ano) e, com a do spot, perde de 22% a 28% ao ano.
 """
 
 import argparse

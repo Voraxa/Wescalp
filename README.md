@@ -608,6 +608,84 @@ de 1,0 a 2,5. O mais perto da régua foi o volume alto na DOGE: +1,67% nas 12 h 
   moedas.
 - **Na XRP a regra perdeu para segurar.**
 
+## Ideias do day-trader-skill
+
+O [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (e o [trader-skill](https://github.com/Jakeschincariol/trader-skill),
+do mesmo autor) é um pacote de skills do Claude para ações americanas. Não traz uma estratégia que ganha, e sim
+ferramentas de disciplina: scanner, entrada, saída, simulação, tamanho, trava de risco e aprovação humana antes de
+cada ordem. No exemplo do próprio autor, um rompimento da Tesla, a simulação e o histórico deram cara ou coroa. Três
+ideias foram testadas aqui.
+
+### Rompimento da faixa de abertura (ORB)
+
+`python -m wescalp.orb --file ...` testa no BTC o setup principal do pacote, com a abertura da bolsa de Nova York no
+lugar da abertura da ação. O desenho foi registrado antes da rodada (`8ce45c8`):
+
+- **Faixa:** máxima e mínima dos primeiros 15 ou 30 min depois das 9h30 de Nova York, em cada dia de pregão.
+- **Entrada:** só compra, com o capital inteiro, no primeiro candle de 5 min que fechar acima da faixa, até as 12h de
+  Nova York.
+- **Saída:** stop no meio da faixa e alvo de 1R ou 2R (R = entrada - stop); se nada bater, venda às 16h.
+
+Primeira rodada (25/10, de 10/2018 a 06/2026):
+
+| Variante | Operações | Acerto | Ao ano com 0,1% | Com 0,02% | Com 0% | Queda máx. | Sharpe |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| faixa 15 min, alvo 1R | 1.239 | 43% | -28,1% | -7,1% | -0,9% | 92% | -3,85 |
+| faixa 15 min, alvo 2R | 1.239 | 35% | -27,5% | -6,3% | -0,0% | 92% | -2,95 |
+| faixa 30 min, alvo 1R | 1.039 | 46% | -24,7% | -6,6% | -1,4% | 89% | -3,23 |
+| faixa 30 min, alvo 2R | 1.039 | 35% | -22,0% | -3,2% | +2,1% | 85% | -2,19 |
+| segurar BTC | — | — | +32,6% | — | — | 77% | 0,77 |
+
+Nenhuma variante passa, e a prova única não rodou.
+
+- **Sem taxa, o rompimento rende perto de zero:** de -1,4% a +2,1% ao ano. Com a taxa do spot, perde de 22% a 28%.
+- **O teste da sorte saiu viesado a favor dos sorteios.** Ele punha a entrada num horário sorteado da janela, mas só
+  nos dias em que houve rompimento. Assim, muitos sorteios entravam antes da alta, num dia que já se sabia que ia
+  romper. O p de 1,000 não mede o setup; o veredito vem do resultado em si.
+
+### Tamanho pela perda máxima e trava de risco
+
+`wescalp/guard.py` é a camada de execução de uma fase futura, inspirada no trader-budget e no trader-risk do pacote. É
+só conta: nada envia ordem nem usa chave.
+
+- **Tamanho (`size`):** a quantidade de BTC para que a perda no stop, com a taxa de compra e a de venda, não passe da
+  perda máxima. Respeita um teto por posição e as regras do par BTC-USDT spot da KuCoin, lidas da API pública em
+  25/10/2026:
+  - mínimo de 0,00001 BTC e 0,1 USDT;
+  - incremento de 0,00000001 BTC;
+  - tick de 0,1 USDT.
+
+  A quantidade é arredondada para baixo e o stop vai para o tick de baixo.
+- **Trava (`check`):** passa ou bloqueia uma ordem, com os motivos, em sete regras:
+  - perda por operação;
+  - perda do dia, já com o stop da ordem nova;
+  - operações por dia;
+  - relação alvo/risco;
+  - teto da posição;
+  - caixa, sem alavancagem;
+  - regras do par.
+
+  Venda só é barrada se for a descoberto ou fora das regras do par.
+- **Stop da congelada:** ela sai no fechamento abaixo da média, então o risco de cada parte é a distância até a média
+  mais 1 ATR diário de 14 dias de folga.
+
+Pesquisa com o desenho registrado antes da rodada (`7748ecf`), rodada uma vez em 25/10, de 10/2018 a 06/2026, 0,1% por
+lado. Cada parte da congelada entra com o menor entre 1/3 do capital e o tamanho pela perda máxima, e fica assim até
+sair:
+
+| Variante | Ao ano | Queda máx. | Sharpe | Exposição | Saídas que passaram de 1% / 2% | Pior saída |
+| --- | --- | --- | --- | --- | --- | --- |
+| congelada (1/3 por parte) | 54,9% | 44% | 1,25 | 55% | 50 / 20 | -5,0% |
+| perda máx. 1% por parte | 37,1% | 24% | 1,36 | 32% | 16 / 0 | -1,9% |
+| perda máx. 2% por parte | 51,5% | 39% | 1,31 | 49% | 41 / 12 | -3,4% |
+
+- **O que muda:** a perda máxima por parte troca retorno por queda. Com 1%, a carteira fica menos da metade do tempo
+  comprada, cai 24% em vez de 44% e o Sharpe sobe um pouco, mas rende 37% ao ano em vez de 55%. Com 2%, quase não muda.
+- **O limite não é garantido:** a congelada sai no fechamento, que pode cair mais de 1 ATR abaixo da média, e a média
+  anda depois da entrada. No limite de 1%, 16 das 117 saídas com perda passaram dele, a pior em -1,9%.
+- **Nada foi promovido:** não houve teste da sorte nem de robustez para isso. É a régua que a fase de enviar ordens
+  usaria.
+
 ### Por que procurar um vale menor não resolve
 
 A taxa é fixa por operação (0,2% na ida e volta do spot), e o movimento encolhe junto com o candle. Contas de 10/2018 a
