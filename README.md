@@ -64,6 +64,10 @@ Três cuidados a mais:
 - É simulação sobre o passado, não operação real. Na prática a ordem limitada nem sempre é executada e o preço
   escorrega um pouco, então o resultado real tende a ser igual ou pior.
 - Nenhum teste prova que nada funciona; prova que o que foi tentado não funcionou.
+- Comparar com segurar numa janela só depende do dia de entrada e do de saída. Com cada dia como entrada, a
+  congelada ganhou de segurar em pouco mais da metade das janelas de 1 e 2 anos, mas caiu menos em 79% a 89% delas (ver
+  "Comparar com segurar depende do dia de entrada"). Os vereditos de day trade não dependem de segurar: a régua era
+  ter lucro, e eles perdem dinheiro com a taxa.
 - O único teste do futuro de verdade é a carteira simulada ao vivo, rodando desde 23/10/2026.
 
 ## Rótulos (Fase 1)
@@ -416,6 +420,59 @@ Por ano, a congelada contra segurar:
 Pela regra fixada, a congelada não ganha nesta época a prova de que não é sorte. No painel ela segue como estava. O
 trecho trancado já foi usado: ideias novas passam a ser julgadas pelo walk-forward e pelo período ao vivo.
 
+### Comparar com segurar depende do dia de entrada
+
+As contas acima comparam a regra com segurar numa janela só, de 11/10/2018 a 30/06/2026. O resultado de segurar
+depende muito do dia em que se compra e do dia em que se mede. `python -m wescalp.entries` refaz a comparação com cada
+dia como entrada. O desenho foi registrado antes da rodada (`98700fb`):
+
+- **Entrada:** começa em USDT e paga 0,1% para comprar. A congelada compra os terços que a regra manda naquele dia;
+  segurar compra tudo. Nenhuma das duas vende no fim.
+- **Janelas:** de 1, 2 e 4 anos, e de cada entrada até 30/06/2026 (com pelo menos 1 ano).
+- **Régua de mesma exposição:** no BTC, a congelada tem em média de 55% a 62% do capital comprado, então perde nas
+  altas e ganha nas quedas só por isso. Essa régua compra no começo a mesma fração média e segura.
+
+BTC, rodado em 25/10:
+
+| Janela | Entradas | Congelada acima de segurar | Acima da mesma exposição | Caiu menos que segurar | Mediana ao ano: congelada / segurar | Pior janela ao ano: congelada / segurar | Janelas no prejuízo: congelada / segurar |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 ano | 2.456 | 51% | 60% | 89% | +48,7% / +54,7% | -44,5% / -76,3% | 22% / 31% |
+| 2 anos | 2.091 | 56% | 80% | 79% | +60,8% / +67,5% | -12,8% / -40,5% | 5% / 22% |
+| 4 anos | 1.360 | 97% | 100% | 100% | +54,8% / +34,2% | +18,6% / +7,0% | 0% / 0% |
+| até 30/06/2026 | 2.456 | 98% | 100% | 100% | +30,8% / +24,9% | -14,8% / -45,9% | 7% / 21% |
+
+- **Ganhar de segurar não se sustenta em 1 e 2 anos:** depende da entrada, e a congelada ganhou em 51% e 56% das
+  janelas. Quem entrou em 2023, no começo da alta, perdeu para segurar em todas as janelas de 2 anos. No topo de
+  10/11/2021, segurar fez -76% no ano seguinte e a congelada -44%; no fundo da Covid, em 13/03/2020, segurar fez
+  +1.093% e a congelada +537%.
+- **O que se repete em quase toda entrada é cair menos:** em 89% das janelas de 1 ano e em todas as de 4 anos. O
+  pior ano da congelada foi -44,5%, contra -76,3% de segurar. A exceção foi o vaivém de 03 a 10/2024: para quem
+  entrou em 2023, a congelada caiu 29%, contra 26% a 28% de segurar, porque vendeu nas quedas e recomprou mais caro.
+- **Contra a régua de mesma exposição, ganha mais vezes:** em 60% das janelas de 1 ano, 80% das de 2 anos e todas as
+  de 4 anos. A hora de entrar e sair vale alguma coisa além de ficar menos tempo comprado.
+- **Em 4 anos, ganhou em 97% das entradas** porque toda janela de 4 anos destes dados pega ao menos uma queda grande
+  (2018, 2022 ou 2025–2026). Isso depende de o BTC continuar com esses ciclos.
+- **A janela usada no resto do README foi boa para a congelada:** de 11/10/2018 até o fim, ela ganhou 22,3 p.p. ao
+  ano de segurar (54,9% contra 32,6%), mais do que em 90% das entradas; na entrada mediana, foram 14,9 p.p. O fim
+  também ajuda: em 30/06/2026 o BTC estava em 58.625, 53% abaixo do topo de 06/10/2025.
+- **As janelas se sobrepõem:** em 7,7 anos, janelas de 2 anos têm só 3 ou 4 independentes, e é o mesmo período em
+  que a regra foi escolhida. A tabela mede o quanto a conclusão depende da entrada; não é prova nova.
+
+Cesta das 6 moedas de "Moedas mais voláteis", de 01/07/2021 a 30/06/2026:
+
+| Janela | Entradas | Congelada acima de segurar | Acima da mesma exposição | Caiu menos que segurar | Mediana ao ano: congelada / segurar | Pior janela ao ano: congelada / segurar | Janelas no prejuízo: congelada / segurar |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 ano | 1.462 | 38% | 53% | 100% | +18,9% / +22,1% | -42,5% / -80,0% | 46% / 40% |
+| 2 anos | 1.097 | 43% | 57% | 100% | +26,0% / +44,0% | -28,8% / -46,2% | 13% / 30% |
+| até 30/06/2026 | 1.462 | 96% | 93% | 100% | +18,2% / -2,0% | -27,5% / -57,1% | 16% / 54% |
+
+- **O "18% contra 2%" da cesta depende da data:** a entrada de 01/07/2021 foi a melhor de todas para a congelada em 1
+  ano. Em janelas de 1 e 2 anos, ela perdeu de segurar na maioria das entradas, por 22 e 13 p.p. ao ano na mediana.
+  Contra a régua de mesma exposição, dá cara ou coroa (53% e 57%).
+- **Até 30/06/2026, ganha em 96% das entradas porque as altcoins estavam caídas no fim:** segurar a cesta até ali deu
+  prejuízo em 54% das entradas. É o efeito da data de saída.
+- **Caiu menos que segurar em todas as janelas.**
+
 ## Day trade: informação nova
 
 O norte do projeto é o day trade: várias compras e vendas por dia, com heurísticas, confluências e modelos rodando
@@ -654,7 +711,8 @@ de 1,0 a 2,5. O mais perto da régua foi o volume alto na DOGE: +1,67% nas 12 h 
 | cesta das 6 | 18,0% / 51% / 0,63 | 2,0% / 82% / 0,38 | — |
 
 - **A cesta passa na régua fixada:** com 1/6 do capital em cada moeda, a congelada rendeu 18% ao ano, contra 2% de
-  segurar a cesta, e caiu 51% contra 82%.
+  segurar a cesta, e caiu 51% contra 82%. Mas isso depende da janela: em janelas de 1 e 2 anos, ela perdeu de segurar
+  na maioria das entradas (ver "Comparar com segurar depende do dia de entrada").
 - **Nenhuma moeda sozinha passa:** BTC, ETH e SOL ficaram com p de 0,05 a 0,085, acima do limite de 0,0083 para seis
   moedas.
 - **Na XRP a regra perdeu para segurar.**
