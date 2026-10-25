@@ -201,6 +201,17 @@ td.live { color: var(--accent); }
 .wbar { display: inline-block; height: 8px; border-radius: 2px; background: #d2a8ff; vertical-align: middle; margin-right: 6px; }
 .legend .c-frozen { color: #3fb950; }
 .legend .c-learner { color: #d2a8ff; }
+/* o que o histórico diz de cada sinal (wescalp.odds) */
+.odds { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.odds-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13.5px; }
+.odds-head button { font-size: 12px; padding: 1px 8px; }
+.odds p { margin: 6px 0 0; font-size: 13px; }
+.odds p.hz { margin-top: 2px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.odds p.note { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+#sg-signals tbody tr { cursor: pointer; }
+#sg-signals tr.pick td { background: #1f2833; }
+td.odd { color: var(--muted); font-size: 12.5px; white-space: normal; min-width: 300px; } /* quebra se faltar espaço */
+td.odd div + div { margin-top: 2px; }
 
 @media (max-width: 640px) {
   body { font-size: 13px; }

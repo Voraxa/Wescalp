@@ -780,7 +780,7 @@ async function loadReports() {
 // --- estratégia: carteiras simuladas de wescalp.paper (nenhuma ordem real; só o registro das regras no tempo) ---
 const FROZEN_ID = 'media-50-100-150';
 const SG = {
-  data: null, last: 0, fitted: false, byDay: new Map(),
+  data: null, last: 0, fitted: false, byDay: new Map(), pick: null, // pick: dia (t) da ordem escolhida
   strat: store.get('sgStrat', FROZEN_ID), range: store.get('sgRange', 'live'),
   sim: store.get('sgSim', true), sma: store.get('sgSma', true),
 };
@@ -829,6 +829,15 @@ function sgCharts() {
   SG.hold = SG.eqChart.addLineSeries({ color: C.muted, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
   SG.chart.subscribeCrosshairMove((p) => sgLegend(p && p.time ? keyOf(p.time) : null));
   SG.eqChart.subscribeCrosshairMove((p) => sgEqLegend(p && p.time ? keyOf(p.time) : null));
+  SG.chart.subscribeClick((p) => { // clique (ou toque) perto de uma seta: o quadro do histórico mostra aquela ordem
+    if (!p || !p.time) return;
+    const t = Date.parse(keyOf(p.time) + 'T00:00:00Z') / 1000;
+    let best = null;
+    for (const o of sgSel().orders) {
+      if ((o.live || SG.sim) && Math.abs(o.t - t) <= 3 * 86400 && (!best || Math.abs(o.t - t) < Math.abs(best.t - t))) best = o;
+    }
+    if (best) { SG.pick = best.t; sgOdds(); sgMarkPick(); }
+  });
 }
 
 // Dia-base da curva: o primeiro dia ao vivo, ou o primeiro dia em que as duas carteiras têm todas as médias.
@@ -864,7 +873,82 @@ function sgLegend(key) {
     + `<div class="row dim"><span>${x.name}: decisão no fechamento ${fmt(d.pos * 100, 0)}% comprado</span>`
     + `<span>${d.live ? 'ao vivo' : 'simulado'}</span></div>`
     + (o ? `<div class="row"><span class="${o.action === 'compra' ? 'up' : 'down'}">${o.action} de ${fmt(o.size * 100, 0)}%`
-      + ` → ${fmt(o.position * 100, 0)}% comprado (${o.reason})</span></div>` : '');
+      + ` → ${fmt(o.position * 100, 0)}% comprado (${o.reason})</span></div>` : '')
+    + (o && o.odds.length ? `<div class="row dim"><span>no histórico: ${o.odds.map(oddsTiny).join(' · ')}</span></div>` : '');
+}
+
+// --- o que o histórico diz de cada virada (wescalp.odds, BTC da Binance desde 2017): conta o passado, não prevê ---
+const oddsYears = () => (SG.data && SG.data.odds ? `de ${SG.data.odds.from.slice(0, 4)} a ${SG.data.odds.to.slice(0, 4)}` : '');
+const isoDay = (s) => fmtUTCDay(Date.parse(s + 'T00:00:00Z') / 1000);
+
+function oddsTiny(e) { // legenda do gráfico
+  return `${e.event} 30 d depois acima em ${pctU(e.after['30'].up, 0)}, `
+    + (e.trade ? `lucro em ${pctU(e.trade.win, 0)}` : `recompra mais barata em ${pctU(e.rebuy.cheaper, 0)}`);
+}
+
+function oddsShort(e) { // coluna "no histórico" da tabela
+  const tail = e.trade
+    ? `lucro em ${pctU(e.trade.win, 0)} (mediana: ganho ${pctS(e.trade.median_gain, 0)}, perda ${pctS(e.trade.median_loss)})`
+    : `recompra mais barata em ${pctU(e.rebuy.cheaper, 0)}`;
+  return `${e.event}: ${fmt(e.n, 0)} vezes · 30 d depois acima em ${pctU(e.after['30'].up, 0)} · ${tail}`;
+}
+
+function oddsText(e) { // o quadro abaixo do gráfico, sem jargão
+  const [m, arrow] = e.event.split(' ');
+  const a = e.after['30'];
+  const years = e.first ? `de ${e.first.slice(0, 4)} a ${e.last.slice(0, 4)}` : oddsYears();
+  let s = `${e.event} (o fechamento passou para ${arrow === '↑' ? 'cima' : 'baixo'} da média de ${m.slice(1)} dias)`
+    + ` aconteceu ${fmt(e.n, 0)} vezes ${years}. 30 dias depois, o BTC estava acima do preço da virada em`
+    + ` ${pctU(a.up, 0)} delas (mediana ${pctS(a.median)}). `;
+  if (e.trade) {
+    const t = e.trade;
+    s += `Comprando na virada e vendendo quando o fechamento voltou para baixo da média, deu lucro em ${pctU(t.win, 0)}`
+      + ` das vezes: quando ganhou, ganhou em mediana ${pctS(t.median_gain)}; quando perdeu, perdeu ${pctS(t.median_loss)};`
+      + ` a operação durou em mediana ${fmt(t.median_days, 0)} dias.`;
+    if (t.win < 0.5 && t.median_gain > -t.median_loss) s += ' Ou seja: a maioria perdeu pouco e a minoria ganhou muito.';
+  } else {
+    const b = e.rebuy;
+    s += `Vendendo na virada, a recompra seguinte (quando o fechamento voltou para cima da média) saiu mais barata em`
+      + ` ${pctU(b.cheaper, 0)} das vezes; em mediana saiu ${pctU(Math.abs(b.median))} mais ${b.median > 0 ? 'cara' : 'barata'},`
+      + ` ${fmt(b.median_days, 0)} dias depois.`;
+  }
+  return s;
+}
+
+const oddsHorizons = (e) => 'Depois de ' + Object.entries(e.after)
+  .map(([k, a]) => `${k} dias: acima em ${pctU(a.up, 0)} (mediana ${pctS(a.median)})`).join(' · ') + '.';
+
+function sgOdds() {
+  const box = $('sg-odds');
+  const x = sgSel();
+  const meta = SG.data && SG.data.odds;
+  const last = x && x.orders.length ? x.orders[x.orders.length - 1] : null;
+  const o = (SG.pick !== null && x.orders.find((q) => q.t === SG.pick)) || last;
+  box.hidden = !meta || !o;
+  if (box.hidden) return;
+  const back = o === last ? null : el('button', { type: 'button' }, 'voltar ao último');
+  if (back) back.addEventListener('click', () => { SG.pick = null; sgOdds(); sgMarkPick(); });
+  const kids = [el('div', { class: 'odds-head' }, el('b', {}, `O que o histórico diz ${o === last ? 'do último sinal' : 'deste sinal'}:`
+    + ` ${o.action} de ${fmt(o.size * 100, 0)}% em ${fmtUTCDay(o.t)} (${o.reason})`), back)];
+  for (const e of o.odds) kids.push(el('p', {}, oddsText(e)), el('p', { class: 'hz' }, oddsHorizons(e)));
+  const missing = (o.reason.match(/M\d+ [↑↓]/g) || []).filter((r) => !o.odds.some((e) => e.event === r));
+  if (o.reason === 'pesos') {
+    kids.push(el('p', {}, 'Esta ordem veio da mudança dos pesos do aprendiz, não de uma virada de média: não há histórico para ela.'));
+  } else if (missing.length) {
+    kids.push(el('p', { class: 'hz' }, `Sem histórico para ${missing.join(', ')}: só as médias da congelada (50, 100 e 150 dias) têm.`));
+  }
+  if (o.odds.length > 1) kids.push(el('p', { class: 'hz' }, 'Cada virada é contada sozinha, não a combinação delas no mesmo dia.'));
+  kids.push(el('p', { class: 'note' }, `Histórico, não previsão: o que veio depois das mesmas viradas no BTC da Binance de`
+    + ` ${isoDay(meta.from)} a ${isoDay(meta.to)}, com ${pctU(meta.fee, 1)} de taxa por lado. É o mesmo período em que a regra`
+    + ' foi escolhida, então não prova nada de novo. Clique ou toque numa seta do gráfico ou numa linha das ordens para ver'
+    + ' outro sinal.'));
+  box.replaceChildren(...kids);
+}
+
+function sgMarkPick() {
+  const x = sgSel();
+  const o = (SG.pick !== null && x.orders.find((q) => q.t === SG.pick)) || x.orders[x.orders.length - 1];
+  document.querySelectorAll('#sg-signals tr[data-t]').forEach((tr) => tr.classList.toggle('pick', !!o && Number(tr.dataset.t) === o.t));
 }
 
 function sgEqLegend(key) {
@@ -930,16 +1014,28 @@ function sgCards() {
 
 function sgOrders() {
   const x = sgSel();
-  const rows = [...x.orders].reverse().map((o) => el('tr', {},
-    el('td', {}, fmtUTCDay(o.t)),
-    el('td', { class: 'l ' + (o.action === 'compra' ? 'pos' : 'neg') }, `${o.action} de ${fmt(o.size * 100, 0)}%`),
-    el('td', {}, `${fmt(o.position * 100, 0)}%`), el('td', { class: 'l' }, o.reason), el('td', {}, fmt(o.price, 0)),
-    el('td', { class: 'l ' + (o.live ? 'live' : 'muted') }, o.live ? 'ao vivo' : 'simulado')));
-  const heads = [['dia da decisão'], ['ordem', 'l'], ['comprado depois'], ['motivo', 'l'], ['fechamento'], ['', 'l']];
+  const rows = [...x.orders].reverse().map((o) => {
+    const odd = o.odds.length ? el('td', { class: 'l odd', title: o.odds.map(oddsText).join('\n\n') },
+      ...o.odds.map((e) => el('div', {}, oddsShort(e)))) : el('td', { class: 'l odd' }, '—');
+    const tr = el('tr', { 'data-t': o.t },
+      el('td', {}, fmtUTCDay(o.t)),
+      el('td', { class: 'l ' + (o.action === 'compra' ? 'pos' : 'neg') }, `${o.action} de ${fmt(o.size * 100, 0)}%`),
+      el('td', {}, `${fmt(o.position * 100, 0)}%`), el('td', { class: 'l' }, o.reason), odd, el('td', {}, fmt(o.price, 0)),
+      el('td', { class: 'l ' + (o.live ? 'live' : 'muted') }, o.live ? 'ao vivo' : 'simulado'));
+    tr.addEventListener('click', () => {
+      SG.pick = o.t;
+      sgOdds();
+      sgMarkPick();
+      $('sg-odds').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    return tr;
+  });
+  const heads = [['dia da decisão'], ['ordem', 'l'], ['comprado depois'], ['motivo', 'l'], ['no histórico', 'l'], ['fechamento'], ['', 'l']];
   const head = el('tr', {}, ...heads.map(([h, c]) => el('th', c ? { class: c } : {}, h)));
   $('sg-signals').replaceChildren(rows.length
     ? el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, head), el('tbody', {}, ...rows)))
     : el('p', { class: 'muted' }, 'Nenhuma ordem ainda.'));
+  sgMarkPick();
 }
 
 function sgWeights() {
@@ -965,7 +1061,9 @@ function sgRender() {
   $('sg-foot').textContent = `Regra de "${x.name}": ${x.rule}. Nenhuma ordem é enviada: são carteiras simuladas.`
     + ' Antes do início ao vivo, os dias foram reconstruídos com a mesma regra (simulado, marcas claras); depois, cada dia'
     + ' é decidido quando fecha e gravado sem reescrita (ao vivo, marcas fortes). A congelada é o controle; o aprendiz'
-    + ' muda os pesos sozinho conforme os sinais de cada média rendem. Datas em UTC; inclui 0,1% de taxa por lado.';
+    + ' muda os pesos sozinho conforme os sinais de cada média rendem. Datas em UTC; inclui 0,1% de taxa por lado.'
+    + (SG.data.odds ? ' "No histórico": o que veio depois das mesmas viradas das médias de 50, 100 e 150 dias no BTC da'
+      + ` Binance ${oddsYears()} (wescalp.odds); é passado, não previsão.` : '');
   if (!x || !x.days.length) {
     $('sg-cards').replaceChildren(el('p', { class: 'muted' },
       'As carteiras simuladas ainda não têm dias gravados: o serviço paper grava o histórico na primeira execução.'));
@@ -1020,6 +1118,7 @@ function sgRender() {
     SG.fitted = true;
   }
   sgCards();
+  sgOdds();
   sgWeights();
   sgOrders();
   sgLegend(null);
@@ -1052,6 +1151,7 @@ document.querySelectorAll('[data-range]').forEach((btn) => {
 });
 document.querySelectorAll('[data-strat]').forEach((btn) => btn.addEventListener('click', () => {
   SG.strat = btn.dataset.strat;
+  SG.pick = null;
   store.set('sgStrat', SG.strat);
   if (SG.data) sgRender();
 }));

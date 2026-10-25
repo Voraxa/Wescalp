@@ -1,5 +1,8 @@
 import math
+import subprocess
+import sys
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -128,6 +131,29 @@ def test_payload_without_rows_or_live_days():
                                  after(D0 + timedelta(days=300)))
     p = paper.payload(paper.FROZEN, D0 + timedelta(days=400), rows, orders, None)
     assert p["live"] is None and p["now"] is None and p["history"]["ret"] == pytest.approx(0.0)
+
+
+def test_orders_carry_the_history_of_their_flips(tmp_path):
+    odds = paper.load_odds()
+    assert list(odds["events"]) == ["M50 ↑", "M50 ↓", "M100 ↑", "M100 ↓", "M150 ↑", "M150 ↓"]
+    got = paper.order_odds("M50 ↑ M100 ↑", odds)
+    assert [e["event"] for e in got] == ["M50 ↑", "M100 ↑"] and got[1] == {"event": "M100 ↑", **odds["events"]["M100 ↑"]}
+    assert [e["event"] for e in paper.order_odds("M60 ↓ M150 ↓", odds)] == ["M150 ↓"]  # as outras do aprendiz não têm
+    assert paper.order_odds("pesos", odds) == [] and paper.order_odds("M50 ↑", None) == []
+    rows, orders = paper.advance(paper.FROZEN, None, bars([100.0] * 150 + [130.0, 143.0, 100.0]), D0,
+                                 after(D0 + timedelta(days=200)))
+    p = paper.payload(paper.FROZEN, D0, rows, orders, None, odds)
+    assert [[e["event"] for e in o["odds"]] for o in p["orders"]] == [
+        ["M50 ↑", "M100 ↑", "M150 ↑"], ["M50 ↓", "M100 ↓", "M150 ↓"]]
+    assert p["orders"][0]["odds"][0]["trade"] == odds["events"]["M50 ↑"]["trade"]
+    assert all(o["odds"] == [] for o in paper.payload(paper.FROZEN, D0, rows, orders, None)["orders"])
+    (tmp_path / "bad.json").write_text("{", encoding="utf-8")
+    assert paper.load_odds(tmp_path / "bad.json") is None and paper.load_odds(tmp_path / "none.json") is None
+
+
+def test_paper_reads_the_odds_without_numpy():
+    code = "import sys; from wescalp import paper; assert paper.load_odds(); assert 'numpy' not in sys.modules"
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=Path(paper.__file__).resolve().parents[1])
 
 
 def test_detail_json_round_trip():

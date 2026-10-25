@@ -17,14 +17,19 @@ Os dias e as ordens são só gravados, nunca reescritos. Na primeira execução 
 é reconstruído (live = false) e o dia de hoje (UTC) vira o início do período ao vivo (paper_meta.live_start): a
 partir do fechamento dele, cada dia é decidido quando fecha. Um dia conta como fechado quando o candle das 23:55 já
 está no banco (o serviço candles só grava candle fechado) ou 30 minutos depois da virada, o que vier primeiro.
+
+No painel, cada ordem leva o que o histórico diz das viradas que a causaram (static/odds.json, de wescalp.odds).
 """
 
 import argparse
 import asyncio
+import json
 import logging
 import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 
 from psycopg.types.json import Jsonb
 
@@ -40,6 +45,7 @@ BAND = 0.05  # o aprendiz só ajusta quando a posição desejada se afasta 5 p.p
 GRACE = timedelta(minutes=30)
 LAST_CANDLE = timedelta(hours=23, minutes=55)
 CHART_SMAS = (50, 100, 150)  # as linhas do gráfico
+ODDS = Path(__file__).resolve().parent / "static" / "odds.json"  # gravado por wescalp.odds
 
 
 @dataclass(frozen=True)
@@ -188,13 +194,31 @@ def day_epoch(d: date) -> int:
     return int(datetime.combine(d, time(), timezone.utc).timestamp())
 
 
+def load_odds(path: Path = ODDS) -> dict | None:
+    """O histórico de cada virada das médias da congelada (wescalp.odds); None se o arquivo falta ou não abre."""
+    try:
+        odds = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return odds if isinstance(odds, dict) and isinstance(odds.get("events"), dict) else None
+
+
+def order_odds(reason: str, odds: dict | None) -> list[dict]:
+    """O histórico de cada virada do motivo da ordem ("M50 ↑ M100 ↑") que está em `odds`, na ordem do motivo.
+
+    Só as médias de 50, 100 e 150 dias têm: as outras viradas do aprendiz ficam de fora e "pesos" dá lista vazia."""
+    events = odds["events"] if odds else {}
+    return [{"event": e, **events[e]} for e in re.findall(r"M\d+ [↑↓]", reason) if e in events]
+
+
 def payload(spec: Spec, live_start: date | None, rows: list[Row], orders: list[Order],
-            last: tuple[datetime, float] | None) -> dict:
+            last: tuple[datetime, float] | None, odds: dict | None = None) -> dict:
     """O que o painel mostra de uma carteira: dias, ordens, componentes, a marcação de agora e os números.
 
     `last`: (abertura, fechamento) do último candle de 5 min do spot; entra como "agora" se é de depois do último
     dia gravado. O período ao vivo conta a partir do fechamento do primeiro dia ao vivo (a primeira decisão ao
-    vivo); o histórico, do primeiro dia com todas as médias até o último dia simulado.
+    vivo); o histórico, do primeiro dia com todas as médias até o último dia simulado. `odds` (load_odds): cada
+    ordem leva o histórico das viradas que a causaram.
     """
     out = {"id": spec.id, "name": spec.name, "learn": spec.learn, "rule": spec.rule,
            "live_start": live_start.isoformat() if live_start else None, "lookbacks": list(spec.lookbacks),
@@ -210,7 +234,8 @@ def payload(spec: Spec, live_start: date | None, rows: list[Row], orders: list[O
         "held": r.held, "pos": r.position, "eq": r.equity, "hold": r.hold, "live": r.live,
     } for r in rows]
     out["orders"] = [{"t": day_epoch(o.day), "action": o.action, "size": o.size, "position": o.position,
-                      "price": o.price, "reason": o.reason, "live": o.live} for o in orders]
+                      "price": o.price, "reason": o.reason, "live": o.live, "odds": order_odds(o.reason, odds)}
+                     for o in orders]
     end = rows[-1]
     month_ago = rows[max(0, len(rows) - 31)]
     out["components"] = [{"n": c.n, "sma": c.sma, "on": c.on, "weight": c.weight, "score": c.score,
