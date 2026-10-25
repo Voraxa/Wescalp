@@ -586,11 +586,15 @@ async def api_reports(request: Request) -> JSON:
 
 
 async def api_paper(request: Request) -> JSON:
-    """Carteiras simuladas (wescalp.paper): a congelada e o aprendiz, com dias, ordens, componentes e números."""
+    """Carteiras simuladas (wescalp.paper): a congelada e o aprendiz, com dias, ordens, componentes e números.
+
+    Cada ordem leva o histórico das viradas que a causaram; `odds` diz de onde e de quando é esse histórico."""
     got = await request.app.state.store.paper()
     meta, data, last = got if got is not None else ({}, {}, None)
-    return JSON({"strategies": [paper.payload(spec, meta.get(spec.id), *data.get(spec.id, ([], [])), last)
-                                for spec in paper.STRATEGIES]})
+    odds = request.app.state.odds
+    return JSON({"strategies": [paper.payload(spec, meta.get(spec.id), *data.get(spec.id, ([], [])), last, odds)
+                                for spec in paper.STRATEGIES],
+                 "odds": {k: v for k, v in odds.items() if k != "events"} if odds else None})
 
 
 async def _bad_request(request: Request, exc: Exception) -> JSON:
@@ -631,6 +635,7 @@ def create_app(store=None, limits: health.Limits | None = None) -> Starlette:
     )
     app.state.store = store
     app.state.limits = limits or health.Limits.from_env()
+    app.state.odds = paper.load_odds()
     return app
 
 

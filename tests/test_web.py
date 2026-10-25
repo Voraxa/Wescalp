@@ -302,6 +302,7 @@ def test_paper_without_tables_is_empty():
     body = client(FakeStore()).get("/api/paper").json()
     assert [x["id"] for x in body["strategies"]] == [paper.FROZEN.id, paper.LEARNER.id]
     assert all(x["days"] == [] and x["live"] is None for x in body["strategies"])
+    assert body["odds"]["from"] == "2017-08-17" and "Binance" in body["odds"]["source"] and "events" not in body["odds"]
 
 
 def test_paper_endpoint_has_both_portfolios_and_marks_now():
@@ -323,3 +324,9 @@ def test_paper_endpoint_has_both_portfolios_and_marks_now():
     assert frozen["live"]["days"] == 9
     assert frozen["history"]["orders"] == 1  # só a M150 liga dentro do histórico completo (dia 149)
     assert learner["history"]["from"] == paper.day_epoch(d0 + timedelta(days=169))  # quando a média de 170 existe
+    # cada ordem leva o histórico das viradas dela; as médias do aprendiz fora de 50, 100 e 150 não têm
+    assert [(o["reason"], [e["event"] for e in o["odds"]]) for o in frozen["orders"]] == [
+        ("M50 ↑", ["M50 ↑"]), ("M100 ↑", ["M100 ↑"]), ("M150 ↑", ["M150 ↑"])]
+    assert frozen["orders"][0]["odds"][0]["n"] > 10 and "trade" in frozen["orders"][0]["odds"][0]
+    by_reason = {o["reason"]: [e["event"] for e in o["odds"]] for o in learner["orders"]}
+    assert by_reason["M50 ↑"] == ["M50 ↑"] and by_reason["M60 ↑"] == []
