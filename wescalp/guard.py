@@ -23,6 +23,13 @@ por lado). Ao entrar, a parte recebe min(1/3, perda máxima / L) do capital, com
 preço for parar no stop equivalente, com as duas taxas; a fração fica fixa até a parte sair. Perda máxima de 1% e de
 2% por parte, contra a congelada de sempre (1/3 por parte). Mede retorno ao ano, queda máxima, Sharpe, exposição média
 e quantas saídas com perda passaram da perda máxima. Nada é promovido: é para saber o que muda.
+
+Primeira rodada (25/10/2026, uma vez, desenho no commit 7748ecf): congelada de sempre 54,9% ao ano, queda de 44%, Sharpe
+1,25, exposição média de 55%; com perda máxima de 1% por parte, 37,1%, 24%, 1,36 e 32% (93% das entradas ficaram
+menores que 1/3 por causa da perda); com 2%, 51,5%, 39%, 1,31 e 49% (42% das entradas). Das 117 saídas com perda (de 155),
+16 passaram de 1% do capital no limite de 1% (a pior, -1,9%) e 12 passaram de 2% no limite de 2% (a pior, -3,4%): o
+fechamento pode cair mais de 1 ATR abaixo da média, e a média anda depois da entrada. Na congelada de sempre, 50 saídas
+perderam mais de 1% do capital e 20 mais de 2% (a pior, -5,0%).
 """
 
 import argparse
