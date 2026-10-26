@@ -41,6 +41,10 @@ Medidas, fora da amostra, juntando os anos:
 - útil para operar: as compras nos 10% de previsão mais alta (corte da validação), segurando k candles, com retorno
   médio acima do custo e t ≥ 3, contando n/k casos independentes (os alvos se sobrepõem); com 0,2% e com 0,04%.
 Mostra também o acerto de cada ano (k = 1, 5 e 20) e as 10 variáveis que mais pesaram no LightGBM em k = 1.
+
+Nota depois da rodada (26/10/2026, sem mudar o método): a régua de "útil para operar" conferiu o t do retorno bruto,
+e não o da sobra depois do custo. O LightGBM passou com 0,04% em k = 16, 19 e 20 (ganho médio de 0,041% a 0,050%),
+mas a sobra, de 0,001% a 0,010% por operação, tem t abaixo de 1.
 """
 
 import argparse

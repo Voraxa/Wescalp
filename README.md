@@ -59,6 +59,7 @@ Três cuidados a mais:
 | Fluxo, prêmio, funding e posições | até 2022 ou 2023 | 2023 ou 2024 a 06/2026 | nenhum sinal paga a taxa |
 | Sistema de day trade em camadas | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | perde de 19% a 49% ao ano |
 | Comprar depois de queda forte, segurando dias | walk-forward anual desde 02/2018 | cada ano de 2020 a 06/2026 | perde 0,8% ao ano; sem taxa, +2,2% |
+| Próximos 20 candles de 5 min (LightGBM e redes neurais) | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | acerta 52% a 53%; o ganho não paga a taxa |
 
 **Limites:**
 
@@ -711,6 +712,63 @@ Fora da amostra, de 01/2020 a 06/2026 (rodado em 26/10):
 - **Nas altcoins, com as mesmas escolhas e sem ajuste:** ETH +4,1%, SOL +4,8%, XRP -9,7%, DOGE -16,1% e ADA -3,4% ao
   ano, de 07/2021 a 06/2026, todas com p de 0,26 ou mais.
 - **No BTC, o que funciona é o contrário:** comprar força, como a tendência diária, e não fraqueza.
+
+### Acerto dos próximos 20 candles (LightGBM e redes neurais)
+
+`python -m wescalp.nextcandles --file ...` mede quanto dá para acertar de cada um dos próximos 20 candles de 5 min,
+com tudo o que temos. O desenho foi registrado antes da rodada (`82d1fdf`):
+
+- **Armas:** 56 variáveis do candle, de médias e osciladores, do volume, do fluxo agressor do spot e do perpétuo, do
+  prêmio, do funding, das posições abertas, da hora, da tendência diária e do ETH.
+- **Modelos:** LightGBM (um por pergunta e horizonte), uma rede densa, uma rede convolucional que lê os últimos 48
+  candles (o gráfico) e a média dos três.
+- **Perguntas:** o candle k sobe ou desce? Daqui a k candles, o preço está acima do de agora?
+- **Teste:** cada ano de 2021 a 06/2026, com modelos treinados só nos anos anteriores; 577.803 candles fora da amostra.
+
+LightGBM, o melhor dos modelos (rodado em 26/10):
+
+| k | Candle k | Daqui a k candles | Nos 10% mais confiantes | Chute | Necessário com 0,2% | Com 0,04% | Ganho médio das compras mais confiantes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 52,5% | 52,5% | 57,3% | 49,9% | impossível | 67,2% | +0,008% |
+| 2 | 52,0% | 52,7% | 58,0% | 50,0% | impossível | 62,3% | +0,013% |
+| 3 | 51,6% | 53,0% | 57,9% | 50,1% | impossível | 60,1% | +0,014% |
+| 4 | 51,4% | 53,1% | 58,5% | 50,2% | 94,1% | 58,9% | +0,017% |
+| 5 | 50,9% | 53,1% | 57,9% | 50,2% | 89,6% | 58,0% | +0,020% |
+| 6 | 50,6% | 53,1% | 57,8% | 50,3% | 86,4% | 57,4% | +0,024% |
+| 7 | 50,5% | 53,1% | 57,9% | 50,4% | 83,9% | 56,9% | +0,025% |
+| 8 | 50,5% | 53,2% | 57,7% | 50,4% | 81,7% | 56,5% | +0,027% |
+| 9 | 50,4% | 53,1% | 57,9% | 50,4% | 80,0% | 56,2% | +0,030% |
+| 10 | 50,4% | 53,2% | 57,5% | 50,5% | 78,5% | 55,9% | +0,028% |
+| 11 | 50,2% | 53,2% | 58,0% | 50,5% | 77,2% | 55,7% | +0,034% |
+| 12 | 50,2% | 53,2% | 57,7% | 50,5% | 76,1% | 55,5% | +0,036% |
+| 13 | 50,3% | 53,4% | 58,1% | 50,5% | 75,1% | 55,3% | +0,036% |
+| 14 | 50,3% | 53,4% | 58,0% | 50,6% | 74,2% | 55,1% | +0,036% |
+| 15 | 50,2% | 53,3% | 58,3% | 50,6% | 73,4% | 55,0% | +0,037% |
+| 16 | 50,3% | 53,3% | 58,0% | 50,6% | 72,7% | 54,9% | +0,041% |
+| 17 | 50,2% | 53,4% | 57,9% | 50,6% | 72,0% | 54,7% | +0,038% |
+| 18 | 50,1% | 53,4% | 57,9% | 50,6% | 71,4% | 54,6% | +0,039% |
+| 19 | 50,0% | 53,4% | 58,7% | 50,7% | 70,8% | 54,5% | +0,046% |
+| 20 | 50,0% | 53,3% | 58,5% | 50,7% | 70,3% | 54,4% | +0,050% |
+
+"Chute" é dizer sempre a direção mais comum no treino. "Nos 10% mais confiantes", "Chute", "Necessário" e "Ganho
+médio" valem para "daqui a k candles"; os mais confiantes são de 11% a 13% dos candles, e o ganho é o das compras
+nos 10% de previsão mais alta, segurando k candles, antes da taxa.
+
+- **O próximo candle dá 52,5% de acerto; do 7º em diante, é cara ou coroa.** O que os modelos acham é volta à média
+  de curtíssimo prazo: as variáveis que mais pesaram foram a distância à EMA de 9, o RSI de 2 e o retorno dos últimos
+  6 candles. Só inverter o último candle já dá 51,3%.
+- **"Daqui a k candles" fica perto de 53% em todos os horizontes**, contra 50% a 50,7% do chute. Nos 10% de
+  previsões mais confiantes, de 57,3% a 58,7%.
+- **O acerto não paga a taxa:** o ganho médio das compras mais confiantes vai de 0,008% (1 candle) a 0,05% (20
+  candles). A ida e volta do spot custa 0,2%, de 4 a 25 vezes mais. Para pagar o spot, seria preciso acertar de 70% a
+  94%, e até 3 candles nem acertando tudo daria.
+- **As redes neurais não ganharam do LightGBM:** em "daqui a k candles", a rede densa e a que lê o gráfico ficaram de
+  0,1 a 0,8 ponto abaixo, e a média dos três não ajudou.
+- **O acerto caiu com o tempo:** com os três juntos, de 52,9% a 54,0% de 2021 a 2023 para 51,3% a 51,9% em 2025.
+- **Pela régua fixada, o LightGBM passou com 0,04% em k = 16, 19 e 20, mas por pouco:** ganho de 0,041% a 0,050%
+  contra um custo de 0,04%. A régua conferia o t do retorno bruto; a sobra depois do custo, de 0,001% a 0,010% por
+  operação, tem t abaixo de 1. São 3 de 160 conferências, a ordem limitada nem sempre é executada e o perpétuo cobra
+  funding. Na prática, não paga.
 
 ## Moedas mais voláteis
 
