@@ -58,6 +58,7 @@ Três cuidados a mais:
 | Prova única da congelada | nada: dados nunca vistos | 2013 a 08/2017, Bitstamp | lucro e queda menor, mas não passa no teste da sorte |
 | Fluxo, prêmio, funding e posições | até 2022 ou 2023 | 2023 ou 2024 a 06/2026 | nenhum sinal paga a taxa |
 | Sistema de day trade em camadas | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | perde de 19% a 49% ao ano |
+| Comprar depois de queda forte, segurando dias | walk-forward anual desde 02/2018 | cada ano de 2020 a 06/2026 | perde 0,8% ao ano; sem taxa, +2,2% |
 
 **Limites:**
 
@@ -665,6 +666,51 @@ Nenhuma variante passa.
   segurar.
 - **Com stop:** as perdas no stop comem os ganhos, de -6% a -37% ao ano.
 - **Dias de sinal:** não são melhores que dias ao acaso (p de 0,86 a 1,0).
+
+### Comprar depois de queda forte e segurar dias
+
+Nos testes de 1 a 12 h, comprar depois de queda forte rendeu mais que a média, mas pouco para a taxa.
+`python -m wescalp.bounce --file ...` testa segurar mais, com os termômetros escolhidos só no treino. O desenho foi
+registrado antes da rodada (`236c1fd`):
+
+- **Termômetros de queda (9):** RSI de 2 dias abaixo de 5, 10 ou 20 (um medidor de sobrevenda que vai perto de zero
+  depois de dois dias de queda forte), ou queda de 1 ou 3 dias de 1,5, 2 ou 2,5 desvios.
+- **Filtro de tendência:** nenhum, ou fechamento acima da média de 150 dias.
+- **Saída (6):** depois de 1, 3, 5, 10 ou 20 dias, ou no primeiro fechamento acima da média de 5 dias.
+- **Escolha:** a cada ano, a combinação de maior Sharpe no treino, entre as 108, usada no ano seguinte. O treino vai de
+  02/2018 ao fim do ano anterior. Compra e venda no fechamento diário, com o capital inteiro e 0,1% por lado.
+
+Fora da amostra, de 01/2020 a 06/2026 (rodado em 26/10):
+
+| Estratégia | Operações/ano | Acerto | Ao ano com 0,1% | Com 0,02% | Com 0% | Queda máx. | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| comprar depois de queda forte | 23,1 | 53% | -0,8% | +1,6% | +2,2% | 54% | 0,688 |
+| segurar BTC | — | — | +38,1% | — | — | 77% | — |
+| segurar a mesma fração (22%) | — | — | +15,8% | — | — | 56% | — |
+
+| Ano | Comprar depois de queda forte | Segurar BTC |
+| --- | --- | --- |
+| 2020 | +23,8% (6 operações) | +302,0% |
+| 2021 | -0,3% (14) | +59,8% |
+| 2022 | -32,7% (51) | -64,2% |
+| 2023 | +5,9% (35) | +155,6% |
+| 2024 | +14,1% (38) | +121,3% |
+| 2025 | -5,4% (6) | -6,3% |
+| 2026 (até 30/06) | 0,0% (nenhuma) | -33,1% |
+
+- **Não passa:** perde 0,8% ao ano com a taxa e rende 2,2% sem taxa. Os dias de compra não são melhores que dias
+  sorteados (p 0,69). Por isso, as 16 semanas guardadas não foram usadas.
+- **Na baixa, a queda forte vira mais queda:** em 2022, foram 51 operações e -33%. Comprou em 12/06/2022 (quebra da
+  Luna) e perdeu 15,5% no dia seguinte; em 08/11/2022 (FTX), 14,3%; em 10/05/2021, 36% em 20 dias.
+- **Na alta, rende pouco:** fica comprada 22% do tempo. Em 2023, fez +5,9%, contra +156% de segurar.
+- **O resultado depende de poucas operações:** as 5 piores somam -94%, e as 5 melhores, +103%.
+- **A escolha muda de ano para ano:** RSI abaixo de 5, 10 ou 20, segurando 1 ou 20 dias. Não há um ajuste estável.
+- **Mesmo escolhendo a melhor das 108 olhando o período inteiro** (RSI abaixo de 10, acima da média de 150, 20 dias):
+  20,7% ao ano, com 4,9 operações por ano e Sharpe 0,74. A congelada fez 54,9% ao ano, com Sharpe 1,25, de 10/2018 a
+  06/2026.
+- **Nas altcoins, com as mesmas escolhas e sem ajuste:** ETH +4,1%, SOL +4,8%, XRP -9,7%, DOGE -16,1% e ADA -3,4% ao
+  ano, de 07/2021 a 06/2026, todas com p de 0,26 ou mais.
+- **No BTC, o que funciona é o contrário:** comprar força, como a tendência diária, e não fraqueza.
 
 ## Moedas mais voláteis
 
