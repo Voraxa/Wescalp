@@ -60,6 +60,8 @@ Três cuidados a mais:
 | Sistema de day trade em camadas | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | perde de 19% a 49% ao ano |
 | Comprar depois de queda forte, segurando dias | walk-forward anual desde 02/2018 | cada ano de 2020 a 06/2026 | perde 0,8% ao ano; sem taxa, +2,2% |
 | Próximos 20 candles de 5 min (LightGBM e redes neurais) | walk-forward anual desde 2020 | cada ano de 2021 a 06/2026 | acerta 52% a 53%; o ganho não paga a taxa |
+| A congelada em candles de 12 h, 4 h e 1 h | regras fixadas antes | 10/2018 a 06/2026 | mais operações, menos retorno; a cada 4 h, empata |
+| Filtro de chance nas viradas da congelada | regressão logística anual desde 2017 | cada ano de 2021 a 06/2026 | não passa no BTC; nas altcoins ajudou (só comparação) |
 
 **Limites:**
 
@@ -474,6 +476,59 @@ Cesta das 6 moedas de "Moedas mais voláteis", de 01/07/2021 a 30/06/2026:
 - **Até 30/06/2026, ganha em 96% das entradas porque as altcoins estavam caídas no fim:** segurar a cesta até ali deu
   prejuízo em 54% das entradas. É o efeito da data de saída.
 - **Caiu menos que segurar em todas as janelas.**
+
+### Mais operações com as mesmas médias
+
+`python -m wescalp.faster --file ...` testa a regra da congelada em candles mais curtos, para operar mais. O desenho
+foi registrado antes da rodada (`e8fbbfb`). De 11/10/2018 a 30/06/2026, 0,1% por lado (rodado em 26/10):
+
+| Variante | Operações/ano | Ao ano com 0,1% | Com 0,02% | Queda máx. | Sharpe | p da sorte |
+| --- | --- | --- | --- | --- | --- | --- |
+| congelada (médias de 50/100/150 dias, decisão diária) | 20 | 54,9% | 56,5% | 44% | 1,25 | 0,001 |
+| médias de 50/100/150 dias, decisão a cada 4 h | 45 | 53,4% | 57,1% | 43% | 1,24 | 0,000 |
+| médias de 50/100/150 dias, decisão a cada 1 h | 86 | 49,5% | 56,6% | 46% | 1,17 | 0,003 |
+| médias de 50/100/150 candles de 12 h | 50 | 45,1% | 49,0% | 55% | 1,13 | 0,006 |
+| médias de 50/100/150 candles de 4 h | 160 | 31,5% | 43,3% | 55% | 0,89 | 0,003 |
+| médias de 50/100/150 candles de 1 h | 699 | -11,0% | +29,2% | 90% | -0,09 | 0,006 |
+| segurar BTC | — | 32,6% | — | 77% | 0,77 | — |
+
+- **Nenhuma passa:** a régua pedia Sharpe acima do da congelada.
+- **Seguir a tendência funciona em todos os candles:** todas as variantes passam no teste da sorte (p de 0,000 a
+  0,006). O que come o ganho é a taxa, que cresce com o número de operações. No candle de 1 h, com 700 operações por
+  ano, perde 11% ao ano; com 0,02% por lado, faria 29%.
+- **Dá para operar mais sem perder, mas não para ganhar mais:** conferir as médias de 50 a 150 dias a cada 4 h, em
+  vez de uma vez por dia, faz 45 operações por ano em vez de 20 e rende o mesmo (53,4% contra 54,9% ao ano, Sharpe
+  1,24 contra 1,25).
+- **Médias mais curtas rendem menos:** no candle de 12 h (médias de 25 a 75 dias), ainda ganha de segurar (45,1% ao
+  ano), mas cai mais (55%); no de 4 h, empata com segurar.
+
+### Chance de cada virada virar tendência
+
+`python -m wescalp.flips` testa um filtro de probabilidade. No dia de cada compra da congelada, uma regressão
+logística estima a chance de a operação terminar no lucro, e o filtro pula as compras abaixo da mediana do treino. O
+desenho foi registrado antes da rodada (`cdac035`):
+
+- **Exemplos:** as compras do BTC desde 2017 e de ETH, SOL, XRP, DOGE e ADA desde 2021.
+- **Variáveis (8):** distância à média, inclinação da média, viradas recentes, volatilidade e retorno de 30 dias,
+  outras médias compradas e qual é a média.
+- **Treino:** a cada ano, só com as operações que já tinham terminado.
+
+| Moeda, fora da amostra | Compras/ano com filtro | Sem filtro | Ao ano com filtro | Sem filtro | Sharpe com filtro | Sem filtro |
+| --- | --- | --- | --- | --- | --- | --- |
+| BTC (2021 a 06/2026) | 15,3 | 21,5 | 28,2% | 31,3% | 0,93 | 0,90 |
+| ETH (2022 a 06/2026) | 12,7 | 20,7 | 12,0% | 14,7% | 0,55 | 0,55 |
+| SOL | 13,8 | 28,3 | 23,2% | 11,0% | 0,70 | 0,46 |
+| XRP | 20,2 | 31,4 | 11,7% | -3,2% | 0,46 | 0,19 |
+| DOGE | 12,5 | 23,1 | 9,1% | 4,8% | 0,41 | 0,38 |
+| ADA | 13,3 | 23,1 | 9,2% | -8,6% | 0,43 | 0,04 |
+
+- **No BTC, não passa:** o Sharpe subiu de 0,90 para 0,93 e a queda máxima caiu de 44% para 37%, mas 31% dos filtros
+  que pulam compras ao acaso fizeram igual ou melhor (p 0,31).
+- **O que o modelo aprendeu:** pular as compras em volatilidade alta. É o peso mais forte (-0,53); o resto pesa pouco.
+- **Nas altcoins, o filtro ajudou:** SOL, XRP e ADA melhoraram bastante; ETH e DOGE ficaram parecidos. No desenho,
+  isso era só para comparar, sem teste da sorte: é uma pista, não um resultado. Testá-la direito pediria moedas que
+  nenhum teste usou.
+- **E o filtro faz menos operações, não mais.**
 
 ## Day trade: informação nova
 
